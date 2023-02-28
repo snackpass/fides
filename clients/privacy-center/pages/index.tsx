@@ -162,17 +162,21 @@ const Home: NextPage = () => {
   useEffect(() => {
     const iframe = document.getElementById("privacy-policy-iframe");
     if (!iframe) return;
+    // @ts-expect-error
     iframe.contentWindow.addEventListener(
       "load",
       () => {
         const doc = iframe.contentWindow.document;
+        // @ts-expect-error
         iframe.height = doc.body.scrollHeight;
       },
       true
     );
+    // @ts-expect-error
     iframe.contentWindow.addEventListener(
       "resize",
       () => {
+        // @ts-expect-error
         iframe.height = iframe.contentWindow.document.body.scrollHeight + 40;
       },
       true
