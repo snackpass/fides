@@ -159,6 +159,26 @@ const Home: NextPage = () => {
     }
   }
 
+  useEffect(() => {
+    const iframe = document.getElementById("privacy-policy-iframe");
+    if (!iframe) return;
+    iframe.contentWindow.addEventListener(
+      "load",
+      () => {
+        const doc = iframe.contentWindow.document;
+        iframe.height = doc.body.scrollHeight;
+      },
+      true
+    );
+    iframe.contentWindow.addEventListener(
+      "resize",
+      () => {
+        iframe.height = iframe.contentWindow.document.body.scrollHeight + 40;
+      },
+      true
+    );
+  }, []);
+
   return (
     <main data-testid="home">
       <Stack align="center" py={["6", "16"]} px={5} spacing={14}>
@@ -199,9 +219,22 @@ const Home: NextPage = () => {
             </Text>
           ))}
         </Stack>
-        <Flex m={-2} flexDirection={["column", "column", "row"]}>
-          {content}
-        </Flex>
+        <iframe
+          id="privacy-policy-iframe"
+          style={{ width: "100%" }}
+          src="https://legal.snackpass.co/snackpass-privacy-policy"
+        />
+        <PrivacyRequestModal
+          isOpen={isPrivacyModalOpen}
+          onClose={onPrivacyModalClose}
+          openAction={openAction}
+          currentView={currentPrivacyModalView}
+          setCurrentView={setCurrentPrivacyModalView}
+          privacyRequestId={privacyRequestId}
+          setPrivacyRequestId={setPrivacyRequestId}
+          isVerificationRequired={isVerificationRequired}
+          successHandler={privacyModalSuccessHandler}
+        />
 
         {config.addendum?.map((paragraph, index) => (
           <Text
