@@ -9,6 +9,7 @@ import {
 } from "@fidesui/react";
 import React, { useEffect, useState } from "react";
 import type { NextPage } from "next";
+import Head from "next/head";
 import { useRouter } from "next/router";
 import { ConfigErrorToastOptions } from "~/common/toast-options";
 
@@ -127,7 +128,15 @@ const Home: NextPage = () => {
     toast,
   ]);
 
-  const content: any = [];
+  const content: any = [
+    <ConsentCard
+      key="policyCard"
+      title="Privacy Policy"
+      iconPath="edit.svg"
+      description="View our privacy policy"
+      onOpen={() => router.push("policy")}
+    />,
+  ];
 
   config.actions.forEach((action) => {
     content.push(
@@ -159,118 +168,79 @@ const Home: NextPage = () => {
     }
   }
 
-  useEffect(() => {
-    const iframe = document.getElementById("privacy-policy-iframe");
-    if (!iframe) { 
-        return;
-    }
-    // @ts-expect-error
-    iframe.contentWindow.addEventListener(
-      "load",
-      () => {
-        // @ts-expect-error
-        const doc = iframe.contentWindow.document;
-        // @ts-expect-error
-        iframe.height = doc.body.scrollHeight;
-      },
-      true
-    );
-    // @ts-expect-error
-    iframe.contentWindow.addEventListener(
-      "resize",
-      () => {
-        // @ts-expect-error
-        iframe.height = iframe.contentWindow.document.body.scrollHeight + 40;
-      },
-      true
-    );
-  }, []);
-
   return (
-    <main data-testid="home">
-      <Stack align="center" py={["6", "16"]} px={5} spacing={14}>
-        <Stack align="center" spacing={3}>
-          <Heading
-            fontSize={["3xl", "4xl"]}
-            color="gray.600"
-            fontWeight="semibold"
-            textAlign="center"
-            data-testid="heading"
-          >
-            {config.title}
-          </Heading>
+    <div>
+      <Head>
+        <title>Snackpass Privacy Center</title>
+        <meta name="description" content="Privacy Center" />
+        <link rel="icon" href="/favicon.ico" />
+      </Head>
 
-          <Text
-            fontSize={["small", "medium"]}
-            fontWeight="medium"
-            maxWidth={624}
-            textAlign="center"
-            color="gray.600"
-            data-testid="description"
-          >
-            {config.description}
-          </Text>
+      <Text
+        fontSize={["small", "medium"]}
+        fontWeight="medium"
+        maxWidth={624}
+        textAlign="center"
+        color="gray.600"
+        data-testid="description"
+      >
+        {config.description}
+      </Text>
 
-          {config.description_subtext?.map((paragraph, index) => (
-            <Text
-              fontSize={["small", "medium"]}
-              fontWeight="medium"
-              maxWidth={624}
-              textAlign="center"
-              color="gray.600"
-              data-testid={`description-${index}`}
-              // eslint-disable-next-line react/no-array-index-key
-              key={`description-${index}`}
-            >
-              {paragraph}
-            </Text>
-          ))}
-        </Stack>
-        <iframe
-          id="privacy-policy-iframe"
-          style={{ width: "100%" }}
-          src="https://legal.snackpass.co/snackpass-privacy-policy"
-          title="Snackpass Privacy Policy"
-        />
-        <PrivacyRequestModal
-          isOpen={isPrivacyModalOpen}
-          onClose={onPrivacyModalClose}
-          openAction={openAction}
-          currentView={currentPrivacyModalView}
-          setCurrentView={setCurrentPrivacyModalView}
-          privacyRequestId={privacyRequestId}
-          setPrivacyRequestId={setPrivacyRequestId}
-          isVerificationRequired={isVerificationRequired}
-          successHandler={privacyModalSuccessHandler}
-        />
+      {config.description_subtext?.map((paragraph, index) => (
+        <Text
+          fontSize={["small", "medium"]}
+          fontWeight="medium"
+          maxWidth={624}
+          textAlign="center"
+          color="gray.600"
+          data-testid={`description-${index}`}
+          // eslint-disable-next-line react/no-array-index-key
+          key={`description-${index}`}
+        >
+          {paragraph}
+        </Text>
+      ))}
 
-        {config.addendum?.map((paragraph, index) => (
-          <Text
-            fontSize={["small", "medium"]}
-            fontWeight="medium"
-            maxWidth={624}
-            color="gray.600"
-            data-testid={`addendum-${index}`}
-            // eslint-disable-next-line react/no-array-index-key
-            key={`addendum-${index}`}
-          >
-            {paragraph}
-          </Text>
-        ))}
-        {config.privacy_policy_url && config.privacy_policy_url_text ? (
-          <Link
-            fontSize={["small", "medium"]}
-            fontWeight="medium"
-            textAlign="center"
-            textDecoration="underline"
-            color="gray.600"
-            href={config.privacy_policy_url}
-            isExternal
-          >
-            {config.privacy_policy_url_text}
-          </Link>
-        ) : null}
-      </Stack>
+      <PrivacyRequestModal
+        isOpen={isPrivacyModalOpen}
+        onClose={onPrivacyModalClose}
+        openAction={openAction}
+        currentView={currentPrivacyModalView}
+        setCurrentView={setCurrentPrivacyModalView}
+        privacyRequestId={privacyRequestId}
+        setPrivacyRequestId={setPrivacyRequestId}
+        isVerificationRequired={isVerificationRequired}
+        successHandler={privacyModalSuccessHandler}
+      />
+
+      {config.addendum?.map((paragraph, index) => (
+        <Text
+          fontSize={["small", "medium"]}
+          fontWeight="medium"
+          maxWidth={624}
+          color="gray.600"
+          data-testid={`addendum-${index}`}
+          // eslint-disable-next-line react/no-array-index-key
+          key={`addendum-${index}`}
+        >
+          {paragraph}
+        </Text>
+      ))}
+      {config.privacy_policy_url && config.privacy_policy_url_text ? (
+        <Link
+          fontSize={["small", "medium"]}
+          fontWeight="medium"
+          textAlign="center"
+          textDecoration="underline"
+          color="gray.600"
+          href={config.privacy_policy_url}
+          isExternal
+        >
+          {config.privacy_policy_url_text}
+        </Link>
+      ) : null}
+
       <PrivacyRequestModal
         isOpen={isPrivacyModalOpen}
         onClose={onPrivacyModalClose}
@@ -300,7 +270,7 @@ const Home: NextPage = () => {
         isOpen={noticeEmptyStateModal.isOpen}
         onClose={noticeEmptyStateModal.onClose}
       />
-    </main>
+    </div>
   );
 };
 
