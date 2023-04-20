@@ -202,18 +202,6 @@ const Home: NextPage = () => {
         </Text>
       ))}
 
-      <PrivacyRequestModal
-        isOpen={isPrivacyModalOpen}
-        onClose={onPrivacyModalClose}
-        openAction={openAction}
-        currentView={currentPrivacyModalView}
-        setCurrentView={setCurrentPrivacyModalView}
-        privacyRequestId={privacyRequestId}
-        setPrivacyRequestId={setPrivacyRequestId}
-        isVerificationRequired={isVerificationRequired}
-        successHandler={privacyModalSuccessHandler}
-      />
-
       {config.addendum?.map((paragraph, index) => (
         <Text
           fontSize={["small", "medium"]}
