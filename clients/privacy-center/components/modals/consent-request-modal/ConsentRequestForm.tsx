@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
 import {
   Button,
   chakra,
@@ -12,13 +12,14 @@ import {
   Text,
   useToast,
 } from "@fidesui/react";
+import { getOrMakeFidesCookie, saveFidesCookie } from "fides-js";
 import { useFormik } from "formik";
 import { Headers } from "headers-polyfill";
 import * as Yup from "yup";
 
 import { ErrorToastOptions } from "~/common/toast-options";
 import { addCommonHeaders } from "~/common/CommonHeaders";
-import { config, defaultIdentityInput, hostUrl } from "~/constants";
+import { defaultIdentityInput } from "~/constants";
 import { PhoneInput } from "~/components/phone-input";
 import { FormErrorMessage } from "~/components/FormErrorMessage";
 import {
@@ -26,6 +27,17 @@ import {
   phoneValidation,
 } from "~/components/modals/validation";
 import { ModalViews, VerificationType } from "~/components/modals/types";
+import { useConfig } from "~/features/common/config.slice";
+import { useSettings } from "~/features/common/settings.slice";
+
+type KnownKeys = {
+  email: string;
+  phone: string;
+};
+
+type FormValues = KnownKeys & {
+  [key: string]: any;
+};
 
 const useConsentRequestForm = ({
   onClose,
@@ -40,18 +52,49 @@ const useConsentRequestForm = ({
   isVerificationRequired: boolean;
   successHandler: () => void;
 }) => {
+  const config = useConfig();
   const identityInputs =
-    config.consent?.identity_inputs ?? defaultIdentityInput;
+    config.consent?.button.identity_inputs ?? defaultIdentityInput;
+  const customPrivacyRequestFields =
+    config.consent?.button.custom_privacy_request_fields ?? {};
+  const settings = useSettings();
+  const { BASE_64_COOKIE } = settings;
   const toast = useToast();
-  const formik = useFormik({
+  const cookie = useMemo(() => getOrMakeFidesCookie(), []);
+  const formik = useFormik<FormValues>({
     initialValues: {
       email: "",
       phone: "",
+      ...Object.fromEntries(
+        Object.entries(customPrivacyRequestFields)
+          .filter(([, field]) => !field.hidden)
+          .map(([key, field]) => [key, field.default_value || ""])
+      ),
     },
     onSubmit: async (values) => {
+      const { email, phone, ...customPrivacyRequestFieldValues } = values;
+
+      // populate the values from the form or from the field's default value
+      const transformedCustomPrivacyRequestFields = Object.fromEntries(
+        Object.entries(customPrivacyRequestFields ?? {}).map(([key, field]) => [
+          key,
+          {
+            label: field.label,
+            value: field.hidden
+              ? field.default_value
+              : customPrivacyRequestFieldValues[key] || "",
+          },
+        ])
+      );
+
       const body = {
-        email: values.email,
-        phone_number: values.phone,
+        // Marshall empty strings back to `undefined` so the backend will not try to validate
+        identity: {
+          email: email === "" ? undefined : email,
+          phone_number: phone === "" ? undefined : phone,
+          fides_user_device_id: cookie.identity.fides_user_device_id,
+        },
+        custom_privacy_request_fields: transformedCustomPrivacyRequestFields,
       };
       const handleError = ({
         title,
@@ -73,7 +116,7 @@ const useConsentRequestForm = ({
         addCommonHeaders(headers, null);
 
         const response = await fetch(
-          `${hostUrl}/${VerificationType.ConsentRequest}`,
+          `${settings.FIDES_API_URL}/${VerificationType.ConsentRequest}`,
           {
             method: "POST",
             headers,
@@ -94,6 +137,15 @@ const useConsentRequestForm = ({
           return;
         }
 
+        // After successfully initializing a consent request, save the current
+        // cookie with our unique fides_user_device_id, etc.
+        try {
+          saveFidesCookie(cookie, BASE_64_COOKIE);
+        } catch (error) {
+          handleError({ title: "Could not save consent cookie" });
+          return;
+        }
+
         if (!isVerificationRequired) {
           setConsentRequestId(data.consent_request_id);
           successHandler();
@@ -108,12 +160,43 @@ const useConsentRequestForm = ({
       }
     },
     validationSchema: Yup.object().shape({
-      email: emailValidation(identityInputs?.email),
-      phone: phoneValidation(identityInputs?.phone),
+      email: emailValidation(identityInputs?.email).test(
+        "one of email or phone entered",
+        "You must enter an email",
+        (value, context) => {
+          if (identityInputs?.email === "required") {
+            return Boolean(context.parent.email);
+          }
+          return true;
+        }
+      ),
+      phone: phoneValidation(identityInputs?.phone).test(
+        "one of email or phone entered",
+        "You must enter a phone number",
+        (value, context) => {
+          if (identityInputs?.phone === "required") {
+            return Boolean(context.parent.phone);
+          }
+          return true;
+        }
+      ),
+      ...Object.fromEntries(
+        Object.entries(customPrivacyRequestFields)
+          .filter(([, field]) => !field.hidden)
+          .map(([key, { label, required }]) => {
+            const isRequired = required !== false;
+            return [
+              key,
+              isRequired
+                ? Yup.string().required(`${label} is required`)
+                : Yup.string().notRequired(),
+            ];
+          })
+      ),
     }),
   });
 
-  return { ...formik, identityInputs };
+  return { ...formik, identityInputs, customPrivacyRequestFields };
 };
 
 type ConsentRequestFormProps = {
@@ -146,6 +229,7 @@ const ConsentRequestForm: React.FC<ConsentRequestFormProps> = ({
     setFieldValue,
     resetForm,
     identityInputs,
+    customPrivacyRequestFields,
   } = useConsentRequestForm({
     onClose,
     setCurrentView,
@@ -154,17 +238,36 @@ const ConsentRequestForm: React.FC<ConsentRequestFormProps> = ({
     successHandler,
   });
 
+  const config = useConfig();
+
+  const requiredInputs = Object.entries(identityInputs).filter(
+    ([, required]) => required === "required"
+  );
+  // it's ok to bypass the dirty check if there are no required inputs
+  const dirtyCheck = requiredInputs.length === 0 ? true : dirty;
+
   useEffect(() => resetForm(), [isOpen, resetForm]);
 
   return (
     <>
       <ModalHeader pt={6} pb={0}>
-        Manage your consent
+        {config.consent?.button.modalTitle || config.consent?.button.title}
       </ModalHeader>
       <chakra.form onSubmit={handleSubmit} data-testid="consent-request-form">
         <ModalBody>
+          <Text fontSize="sm" color="gray.600" mb={4}>
+            {config.consent?.button.description}
+          </Text>
+          {config.consent?.button.description_subtext?.map(
+            (paragraph, index) => (
+              // eslint-disable-next-line react/no-array-index-key
+              <Text fontSize="sm" color="gray.600" mb={4} key={index}>
+                {paragraph}
+              </Text>
+            )
+          )}
           {isVerificationRequired ? (
-            <Text fontSize="sm" color="gray.500" mb={4}>
+            <Text fontSize="sm" color="gray.600" mb={4}>
               We will send you a verification code.
             </Text>
           ) : null}
@@ -175,13 +278,13 @@ const ConsentRequestForm: React.FC<ConsentRequestFormProps> = ({
                 isInvalid={touched.email && Boolean(errors.email)}
                 isRequired={identityInputs.email === "required"}
               >
-                <FormLabel>Email</FormLabel>
+                <FormLabel fontSize="sm">Email</FormLabel>
                 <Input
                   id="email"
                   name="email"
                   type="email"
                   focusBorderColor="primary.500"
-                  placeholder="test-email@example.com"
+                  placeholder="your-email@example.com"
                   onChange={handleChange}
                   onBlur={handleBlur}
                   value={values.email}
@@ -196,7 +299,7 @@ const ConsentRequestForm: React.FC<ConsentRequestFormProps> = ({
                 isInvalid={touched.phone && Boolean(errors.phone)}
                 isRequired={identityInputs.phone === "required"}
               >
-                <FormLabel>Phone</FormLabel>
+                <FormLabel fontSize="sm">Phone</FormLabel>
                 <PhoneInput
                   id="phone"
                   name="phone"
@@ -209,12 +312,33 @@ const ConsentRequestForm: React.FC<ConsentRequestFormProps> = ({
                 <FormErrorMessage>{errors.phone}</FormErrorMessage>
               </FormControl>
             ) : null}
+            {Object.entries(customPrivacyRequestFields)
+              .filter(([, field]) => !field.hidden)
+              .map(([key, item]) => (
+                <FormControl
+                  key={key}
+                  id={key}
+                  isInvalid={touched[key] && Boolean(errors[key])}
+                  isRequired={item.required !== false}
+                >
+                  <FormLabel fontSize="sm">{item.label}</FormLabel>
+                  <Input
+                    id={key}
+                    name={key}
+                    focusBorderColor="primary.500"
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    value={values[key]}
+                  />
+                  <FormErrorMessage>{errors[key]}</FormErrorMessage>
+                </FormControl>
+              ))}
           </Stack>
         </ModalBody>
 
         <ModalFooter pb={6}>
           <Button variant="outline" flex="1" mr={3} size="sm" onClick={onClose}>
-            Cancel
+            {config.consent?.button.cancelButtonText || "Cancel"}
           </Button>
           <Button
             type="submit"
@@ -224,10 +348,10 @@ const ConsentRequestForm: React.FC<ConsentRequestFormProps> = ({
             _active={{ bg: "primary.500" }}
             colorScheme="primary"
             isLoading={isSubmitting}
-            isDisabled={isSubmitting || !(isValid && dirty)}
+            isDisabled={isSubmitting || !(isValid && dirtyCheck)}
             size="sm"
           >
-            Continue
+            {config.consent?.button.confirmButtonText || "Continue"}
           </Button>
         </ModalFooter>
       </chakra.form>

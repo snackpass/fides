@@ -1,7 +1,7 @@
 dataset:
   - fides_key: <instance_fides_key>
     name: Mailchimp Dataset
-    description: A sample dataset representing the Mailchimp connector for Fidesops
+    description: A sample dataset representing the Mailchimp connector for Fides
     collections:
       - name: messages
         fields:
@@ -96,7 +96,7 @@ dataset:
                 fidesops_meta:
                   data_type: string
               - name: BIRTHDAY
-                data_categories: [user.date_of_birth]
+                data_categories: [user.demographic.date_of_birth]
                 fidesops_meta:
                   data_type: string
           - name: ip_signup

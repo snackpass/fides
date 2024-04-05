@@ -1,33 +1,67 @@
-// TODO: Update Cypress test to reflect the nav bar 2.0
-describe.skip("Nav Bar", () => {
+describe("Nav Bar", () => {
   beforeEach(() => {
     cy.login();
   });
 
-  it("Renders all page links", () => {
+  it("renders all navigation groups with links inside", () => {
     cy.visit("/");
 
-    cy.getByTestId("nav-link-Privacy Requests");
-    cy.getByTestId("nav-link-Connections");
-    cy.getByTestId("nav-link-User Management");
-    cy.getByTestId("nav-link-Datasets");
-    cy.getByTestId("nav-link-Taxonomy");
-    cy.getByTestId("nav-link-Systems");
+    cy.get("nav button").should("have.length", 7);
+    cy.getByTestId("Overview-nav-group").within(() => {
+      cy.getByTestId("Home-nav-link");
+    });
+    cy.getByTestId("Data inventory-nav-group").within(() => {
+      cy.getByTestId("Systems & vendors-nav-link");
+      cy.getByTestId("Add systems-nav-link");
+      cy.getByTestId("Manage datasets-nav-link");
+    });
+    cy.getByTestId("Privacy requests-nav-group").within(() => {
+      cy.getByTestId("Request manager-nav-link");
+      cy.getByTestId("Connection manager-nav-link");
+    });
+    cy.getByTestId("Management-nav-group").within(() => {
+      cy.getByTestId("Users-nav-link");
+      cy.getByTestId("Organization-nav-link");
+      cy.getByTestId("Taxonomy-nav-link");
+      cy.getByTestId("About Fides-nav-link");
+    });
   });
 
-  it("Renders the active page based on the current route", () => {
-    // Start on the dataset page.
-    cy.visit("/dataset");
+  it("styles the active navigation link based on the current route", () => {
+    const ACTIVE_COLOR = "rgb(119, 69, 240)";
+    // Start on the Home page
+    cy.visit("/");
 
     // The nav should reflect the active page.
-    cy.getByTestId("nav-link-Datasets").should("have.attr", "data-active");
-    cy.getByTestId("nav-link-Taxonomy").should("not.have.attr", "data-active");
+    cy.getByTestId("Home-nav-link")
+      .should("have.css", "background-color")
+      .should("eql", ACTIVE_COLOR);
+    cy.getByTestId("Systems & vendors-nav-link")
+      .should("have.css", "background-color")
+      .should("not.eql", ACTIVE_COLOR);
 
     // Navigate by clicking a nav link.
-    cy.getByTestId("nav-link-Taxonomy").click();
+    cy.getByTestId("Systems & vendors-nav-link").click();
 
     // The nav should update which page is active.
-    cy.getByTestId("nav-link-Taxonomy").should("have.attr", "data-active");
-    cy.getByTestId("nav-link-Datasets").should("not.have.attr", "data-active");
+    cy.getByTestId("Home-nav-link")
+      .should("have.css", "background-color")
+      .should("not.eql", ACTIVE_COLOR);
+    cy.getByTestId("Systems & vendors-nav-link")
+      .should("have.css", "background-color")
+      .should("eql", ACTIVE_COLOR);
+  });
+
+  it("can collapse nav groups and persist across page views", () => {
+    cy.visit("/");
+    cy.getByTestId("Request manager-nav-link").should("be.visible");
+    cy.getByTestId("Privacy requests-nav-group").within(() => {
+      cy.get("button").click();
+    });
+    cy.getByTestId("Request manager-nav-link").should("not.be.visible");
+
+    // Move to another page
+    cy.getByTestId("Systems & vendors-nav-link").click();
+    cy.getByTestId("Request manager-nav-link").should("not.be.visible");
   });
 });

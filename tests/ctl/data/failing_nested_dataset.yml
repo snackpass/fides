@@ -28,10 +28,9 @@ system:
       - name: Mesaure usage of users
         data_categories:
           - user
-        data_use: improve.system
+        data_use: functional.service.improve
         data_subjects:
           - customer
-        data_qualifier: aggregated.anonymized.unlinked_pseudonymized.pseudonymized.identified
         dataset_references:
           - test_failing_nested_dataset_field
 
@@ -49,9 +48,8 @@ policy:
         data_uses:
           matches: OTHER
           values:
-            - provide
+            - essential
         data_subjects:
           matches: OTHER
           values:
             - anonymous_user
-        data_qualifier: aggregated.anonymized.unlinked_pseudonymized.pseudonymized.identified

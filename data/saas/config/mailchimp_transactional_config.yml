@@ -1,14 +1,19 @@
 saas_config:
   fides_key: <instance_fides_key>
-  name: Mailchimp Transactional SaaS Config
+  name: Mailchimp Transactional (Mandrill)
   type: mailchimp_transactional
   description: A sample schema representing the Mailchimp Transactional (Mandrill) connector for Fides
-  version: 0.0.1
+  user_guide: https://docs.ethyca.com/user-guides/integrations/saas-integrations/mailchimp-transactional
+  version: 0.0.3
 
   connector_params:
     - name: domain
       default_value: mandrillapp.com/api/1.0
+      description: Your Mailchimp Transactional API URL
     - name: api_key
+      label: API key
+      description: Your Mailchimp Transactional API Key
+      sensitive: True
 
   client_config:
     protocol: https
@@ -24,7 +29,6 @@ saas_config:
   test_request:
     method: GET
     path: /users/ping
-
 
   consent_requests:
     opt_in:

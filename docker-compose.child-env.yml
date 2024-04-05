@@ -1,7 +1,7 @@
 services:
   fides-child:
     image: ethyca/fides:local
-    command: uvicorn --host 0.0.0.0 --port 8080 --reload --reload-dir src fides.api.main:app
+    command: uvicorn --host 0.0.0.0 --port 8080 --reload --reload-dir src --reload-dir data --reload-include='*.yml' fides.api.main:app
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://0.0.0.0:8080/health" ]
       interval: 20s
@@ -27,7 +27,6 @@ services:
       FIDES__DATABASE__DB: "child_test_db"
       FIDES__DATABASE__TEST_DB: "child_test_db"
       FIDES__DEV_MODE: "True"
-      FIDES__REDIS__ENABLED: "True"
       FIDES__REDIS__HOST: "redis-child"
       FIDES__TEST_MODE: "True"
       FIDES__USER__ANALYTICS_OPT_OUT: "True"

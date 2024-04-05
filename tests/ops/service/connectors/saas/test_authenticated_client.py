@@ -6,18 +6,15 @@ from typing import Any, Dict
 import pytest
 from requests import ConnectionError, Response, Session
 
-from fides.api.ops.common_exceptions import (
-    ClientUnsuccessfulException,
-    ConnectionException,
-)
-from fides.api.ops.models.connectionconfig import ConnectionConfig, ConnectionType
-from fides.api.ops.schemas.saas.saas_config import ClientConfig
-from fides.api.ops.schemas.saas.shared_schemas import HTTPMethod, SaaSRequestParams
-from fides.api.ops.service.connectors.saas.authenticated_client import (
+from fides.api.common_exceptions import ClientUnsuccessfulException, ConnectionException
+from fides.api.models.connectionconfig import ConnectionConfig, ConnectionType
+from fides.api.schemas.saas.saas_config import ClientConfig
+from fides.api.schemas.saas.shared_schemas import HTTPMethod, SaaSRequestParams
+from fides.api.service.connectors.saas.authenticated_client import (
     AuthenticatedClient,
     get_retry_after,
 )
-from fides.api.ops.util.saas_util import load_config_with_replacement
+from fides.api.util.saas_util import load_config_with_replacement
 
 
 @pytest.fixture
@@ -43,7 +40,7 @@ def test_connection_config(test_saas_config) -> ConnectionConfig:
 def test_saas_request() -> SaaSRequestParams:
     return SaaSRequestParams(
         method=HTTPMethod.GET,
-        path="test_path",
+        path="/test_path",
         query_params={},
     )
 
@@ -58,15 +55,19 @@ def test_authenticated_client(
     test_connection_config, test_client_config
 ) -> AuthenticatedClient:
     return AuthenticatedClient(
-        "https://test_uri", test_connection_config, test_client_config
+        "https://ethyca.com", test_connection_config, test_client_config
     )
 
 
 @pytest.mark.unit_saas
-@mock.patch.object(Session, "send")
 class TestAuthenticatedClient:
+    @mock.patch.object(Session, "send")
     def test_client_returns_ok_response(
-        self, send, test_authenticated_client, test_saas_request
+        self,
+        send,
+        test_authenticated_client,
+        test_saas_request,
+        test_config_dev_mode_disabled,
     ):
         test_response = Response()
         test_response.status_code = 200
@@ -74,6 +75,21 @@ class TestAuthenticatedClient:
         returned_response = test_authenticated_client.send(test_saas_request)
         assert returned_response == test_response
 
+    @pytest.mark.parametrize(
+        "ip_address", ["localhost", "127.0.0.1", "169.254.0.1", "169.254.169.254"]
+    )
+    def test_client_denied_url(
+        self,
+        test_authenticated_client: AuthenticatedClient,
+        test_saas_request,
+        test_config_dev_mode_disabled,
+        ip_address,
+    ):
+        test_authenticated_client.uri = f"https://{ip_address}"
+        with pytest.raises(ConnectionException):
+            test_authenticated_client.send(test_saas_request)
+
+    @mock.patch.object(Session, "send")
     def test_client_retries_429_and_throws(
         self, send, test_authenticated_client, test_saas_request
     ):
@@ -84,6 +100,7 @@ class TestAuthenticatedClient:
             test_authenticated_client.send(test_saas_request)
         assert send.call_count == 4
 
+    @mock.patch.object(Session, "send")
     def test_client_retries_429_with_success(
         self, send, test_authenticated_client, test_saas_request
     ):
@@ -96,6 +113,7 @@ class TestAuthenticatedClient:
         returned_response == test_response_2
         assert send.call_count == 2
 
+    @mock.patch.object(Session, "send")
     def test_client_does_not_retry_connection_error(
         self, send, test_authenticated_client, test_saas_request
     ):
@@ -104,6 +122,28 @@ class TestAuthenticatedClient:
         with pytest.raises(ConnectionException):
             test_authenticated_client.send(test_saas_request)
         assert send.call_count == 1
+
+    def test_client_ignores_errors(
+        self,
+        test_authenticated_client,
+    ):
+        """Test that _should_ignore_errors ignores the correct errors."""
+        assert test_authenticated_client._should_ignore_error(
+            status_code=400,
+            errors_to_ignore=True,
+        )
+        assert not test_authenticated_client._should_ignore_error(
+            status_code=400,
+            errors_to_ignore=False,
+        )
+        assert test_authenticated_client._should_ignore_error(
+            status_code=400,
+            errors_to_ignore=[400],
+        )
+        assert not test_authenticated_client._should_ignore_error(
+            status_code=400,
+            errors_to_ignore=[401],
+        )
 
 
 @pytest.mark.unit_saas

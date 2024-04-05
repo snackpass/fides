@@ -2,11 +2,11 @@ from typing import Any, Dict
 
 import pytest
 
-from fides.api.ops.common_exceptions import FidesopsException
-from fides.api.ops.schemas.saas.strategy_configuration import (
+from fides.api.common_exceptions import FidesopsException
+from fides.api.schemas.saas.strategy_configuration import (
     FilterPostProcessorConfiguration,
 )
-from fides.api.ops.service.processors.post_processor_strategy.post_processor_strategy_filter import (
+from fides.api.service.processors.post_processor_strategy.post_processor_strategy_filter import (
     FilterPostProcessorStrategy,
 )
 
@@ -336,3 +336,33 @@ def test_filter_invalid_field_value_array():
     assert str(exc.value) == (
         "Every value in the 'attribute.email_contacts' list must be a string"
     )
+
+
+def test_nested_array_path():
+    config = FilterPostProcessorConfiguration(
+        field="agreement.orgs.members.email", value="somebody@email.com"
+    )
+    data = [
+        {
+            "agreement": {
+                "id": 1,
+                "orgs": [{"members": [{"email": "somebody@email.com"}]}],
+            }
+        },
+        {
+            "agreement": {
+                "id": 2,
+                "orgs": [{"members": [{"email": "somebody_else@email.com"}]}],
+            }
+        },
+    ]
+    processor = FilterPostProcessorStrategy(configuration=config)
+    result = processor.process(data)
+    assert result == [
+        {
+            "agreement": {
+                "id": 1,
+                "orgs": [{"members": [{"email": "somebody@email.com"}]}],
+            }
+        }
+    ]

@@ -14,18 +14,17 @@ long_description = open("README.md", encoding="utf-8").read()
 
 install_requires = open("requirements.txt", encoding="utf-8").read().strip().split("\n")
 dev_requires = open("dev-requirements.txt", encoding="utf-8").read().strip().split("\n")
-dangerous_requires = (
-    open("dangerous-requirements.txt", encoding="utf-8").read().strip().split("\n")
+optional_requires = (
+    open("optional-requirements.txt", encoding="utf-8").read().strip().split("\n")
 )
 
 
 def optional_requirements(
-    dependency_names: List[str], requires: List[str] = dangerous_requires
+    dependency_names: List[str], requires: List[str] = optional_requires
 ) -> List[str]:
     """
     Matches the provided dependency names to lines in `optional-requirements.txt`,
     and returns the full dependency string for each one.
-
     Prevents the need to store version numbers in two places.
     """
 
@@ -46,13 +45,10 @@ def optional_requirements(
 # Human-Readable Extras
 # Versions are read from corresponding lines in `optional-requirements.txt`
 extras = {
-    "mssql": optional_requirements(["pyodbc"], dangerous_requires),
+    "mssql": optional_requirements(["pymssql"], optional_requires),
 }
-dangerous_extras = ["mssql"]  # These extras break on certain platforms
-extras["all"] = sum(
-    [value for key, value in extras.items() if key not in dangerous_extras], []
-)
 
+extras["all"] = sum([value for value in extras.values()], [])
 
 ###################
 ## Package Setup ##

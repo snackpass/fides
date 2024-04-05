@@ -1,15 +1,23 @@
 saas_config:
   fides_key: <instance_fides_key>
-  name: Datadog SaaS Config
+  name: Datadog
   type: datadog
   description: A sample schema representing the Datadog connector for Fides
-  version: 0.0.2
+  user_guide: https://docs.ethyca.com/user-guides/integrations/saas-integrations/datadog
+  version: 0.0.4
 
   connector_params:
     - name: domain
+      description: Your Datadog API URL
       default_value: api.datadoghq.com
     - name: api_key
+      label: API key
+      description: The API key for your Datadog organization
+      sensitive: True
     - name: app_key
+      label: Application key
+      description: The application key for your Datadog organization
+      sensitive: True
 
   client_config:
     protocol: https

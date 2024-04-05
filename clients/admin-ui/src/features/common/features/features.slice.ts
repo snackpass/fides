@@ -14,17 +14,21 @@ import { Env, FlagsFor, NamesFor, ValueFor } from "./types";
 
 export const FLAG_CONFIG = configureFlags(flagDefaults);
 export type FlagConfig = typeof FLAG_CONFIG;
-export const FLAG_NAMES = Object.keys(FLAG_CONFIG) as Array<
-  NamesFor<FlagConfig>
->;
+export type FlagNames = NamesFor<FlagConfig>;
+export const FLAG_NAMES = Object.keys(FLAG_CONFIG) as Array<FlagNames>;
 
 type FeaturesState = {
   flags: Partial<FlagConfig>;
+  /**
+   * Not currently used, but useful for one-time messages that display on every page
+   * until acknowledged (see fides#2842)
+   */
+  showNotificationBanner: boolean;
 };
 
-const initialState: FeaturesState = { flags: {} };
+const initialState: FeaturesState = { flags: {}, showNotificationBanner: true };
 
-const featuresSlice = createSlice({
+export const featuresSlice = createSlice({
   name: "features",
   initialState,
   reducers: {
@@ -53,6 +57,9 @@ const featuresSlice = createSlice({
     reset(draftState) {
       draftState.flags = {};
     },
+    setShowNotificationBanner(draftState, action: PayloadAction<boolean>) {
+      draftState.showNotificationBanner = action.payload;
+    },
   },
 });
 
@@ -68,6 +75,17 @@ export const selectEnvFlags = createSelector(
   (flags): FlagsFor<FlagConfig> =>
     flagsForEnv({ ...FLAG_CONFIG, ...flags }, process.env.NEXT_PUBLIC_APP_ENV)
 );
+
+/**
+ * Notification banner specific. If we one day end up with more notification
+ * related logic, we should move this to its own slice.
+ */
+export const selectShowNotificationBanner = createSelector(
+  selectFeatures,
+  (state) => state.showNotificationBanner
+);
+
+export const { setShowNotificationBanner } = featuresSlice.actions;
 
 export const useFlags = () => {
   const dispatch = useAppDispatch();
@@ -112,9 +130,13 @@ export const useFlags = () => {
 export type Features = {
   version: string | undefined;
   plus: boolean;
+  plusVersion: string | undefined;
   systemsCount: number;
   connectionsCount: number;
   dataFlowScanning: boolean;
+  dictionaryService: boolean;
+  fidesCloud: boolean;
+  tcf: boolean;
 
   flags: FlagsFor<FlagConfig>;
 };
@@ -128,9 +150,16 @@ export const useFeatures = (): Features => {
   const version = health?.version;
 
   const plus = plusHealth !== undefined;
+  const plusVersion = plusHealth?.fidesplus_version;
   const dataFlowScanning = plusHealth
     ? !!plusHealth.system_scanner.enabled
     : false;
+  const dictionaryService = plusHealth
+    ? !!plusHealth.dictionary.enabled
+    : false;
+  const fidesCloud = plusHealth ? !!plusHealth?.fides_cloud?.enabled : false;
+
+  const tcf = plusHealth ? !!plusHealth.tcf.enabled : false;
 
   const systemsCount = allSystems?.length ?? 0;
 
@@ -141,9 +170,13 @@ export const useFeatures = (): Features => {
   return {
     version,
     plus,
+    plusVersion,
     systemsCount,
     connectionsCount,
     dataFlowScanning,
+    dictionaryService,
+    fidesCloud,
+    tcf,
     flags,
   };
 };

@@ -1,5 +1,10 @@
 Closes #<issue>
 
+### Description Of Changes
+
+_Write some things here about the changes and any potential caveats_
+
+
 ### Code Changes
 
 * [ ] _list your code changes here_
@@ -17,7 +22,4 @@ Closes #<issue>
 * [ ] Issue Requirements are Met
 * [ ] Relevant Follow-Up Issues Created
 * [ ] Update `CHANGELOG.md`
-
-### Description Of Changes
-
-_Write some things here about the changes and any potential caveats_
+* [ ] For API changes, the [Postman collection](https://github.com/ethyca/fides/blob/main/docs/fides/docs/development/postman/Fides.postman_collection.json) has been updated

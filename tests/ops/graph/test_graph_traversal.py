@@ -1,6 +1,6 @@
 import pytest
 
-from fides.api.ops.graph.graph import *
+from fides.api.graph.graph import *
 
 from .graph_test_util import *
 
@@ -256,7 +256,6 @@ def test_tree_1() -> None:
 
 
 def test_traversal_ordering() -> None:
-
     # connect 1 -> 2, 2 <- 3,directional,  -> 3 is unreachable
     t = generate_graph_resources(3)
     field(t, "dr_1", "ds_1", "f1").references.append(

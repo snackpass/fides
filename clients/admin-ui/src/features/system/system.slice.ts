@@ -1,10 +1,14 @@
 import { createSelector, createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 
 import type { RootState } from "~/app/store";
-import { selectToken } from "~/features/auth";
-import { addCommonHeaders } from "~/features/common/CommonHeaders";
-import { System } from "~/types/api";
+import { baseApi } from "~/features/common/api.slice";
+import {
+  BulkPutConnectionConfiguration,
+  ConnectionConfigurationResponse,
+  System,
+  SystemResponse,
+  TestStatusMessage,
+} from "~/types/api";
 
 interface SystemDeleteResponse {
   message: string;
@@ -17,35 +21,46 @@ interface UpsertResponse {
   updated: number;
 }
 
-export const systemApi = createApi({
-  reducerPath: "systemApi",
-  baseQuery: fetchBaseQuery({
-    baseUrl: process.env.NEXT_PUBLIC_FIDESCTL_API,
-    prepareHeaders: (headers, { getState }) => {
-      const token: string | null = selectToken(getState() as RootState);
-      addCommonHeaders(headers, token);
-      return headers;
-    },
-  }),
-  tagTypes: ["System"],
+export type ConnectionConfigSecretsRequest = {
+  systemFidesKey: string;
+  secrets: {
+    [key: string]: any;
+  };
+};
+
+const systemApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
-    getAllSystems: build.query<System[], void>({
+    getAllSystems: build.query<SystemResponse[], void>({
       query: () => ({ url: `system/` }),
       providesTags: () => ["System"],
+      transformResponse: (systems: SystemResponse[]) =>
+        systems.sort((a, b) => {
+          const displayName = (system: SystemResponse) =>
+            system.name === "" || system.name == null
+              ? system.fides_key
+              : system.name;
+          return displayName(a).localeCompare(displayName(b));
+        }),
     }),
-    getSystemByFidesKey: build.query<System, string>({
+    getSystemByFidesKey: build.query<SystemResponse, string>({
       query: (fides_key) => ({ url: `system/${fides_key}/` }),
       providesTags: ["System"],
     }),
     // we accept 'unknown' as well since the user can paste anything in, and we rely
     // on the backend to do the validation for us
-    createSystem: build.mutation<System, System | unknown>({
+    createSystem: build.mutation<SystemResponse, System | unknown>({
       query: (body) => ({
         url: `system/`,
         method: "POST",
         body,
       }),
-      invalidatesTags: () => ["System"],
+      invalidatesTags: () => [
+        "Datamap",
+        "System",
+        "Datastore Connection",
+        "System Vendors",
+        "Privacy Notices",
+      ],
     }),
     deleteSystem: build.mutation<SystemDeleteResponse, string>({
       query: (key) => ({
@@ -53,7 +68,12 @@ export const systemApi = createApi({
         params: { resource_type: "system" },
         method: "DELETE",
       }),
-      invalidatesTags: ["System"],
+      invalidatesTags: [
+        "System",
+        "Datastore Connection",
+        "Privacy Notices",
+        "System Vendors",
+      ],
     }),
     upsertSystems: build.mutation<UpsertResponse, System[]>({
       query: (systems) => ({
@@ -61,10 +81,16 @@ export const systemApi = createApi({
         method: "POST",
         body: systems,
       }),
-      invalidatesTags: ["System"],
+      invalidatesTags: [
+        "Datamap",
+        "System",
+        "Datastore Connection",
+        "System History",
+        "System Vendors",
+      ],
     }),
     updateSystem: build.mutation<
-      System,
+      SystemResponse,
       Partial<System> & Pick<System, "fides_key">
     >({
       query: ({ ...patch }) => ({
@@ -73,7 +99,58 @@ export const systemApi = createApi({
         method: "PUT",
         body: patch,
       }),
-      invalidatesTags: ["System"],
+      invalidatesTags: [
+        "Datamap",
+        "System",
+        "Privacy Notices",
+        "Datastore Connection",
+        "System History",
+        "System Vendors",
+      ],
+    }),
+    patchSystemConnectionConfigs: build.mutation<
+      BulkPutConnectionConfiguration,
+      {
+        systemFidesKey: string;
+        connectionConfigs: Omit<
+          ConnectionConfigurationResponse,
+          "created_at"
+        >[];
+      }
+    >({
+      query: ({ systemFidesKey, connectionConfigs }) => ({
+        url: `/system/${systemFidesKey}/connection`,
+        method: "PATCH",
+        body: connectionConfigs,
+      }),
+      invalidatesTags: ["Datamap", "System", "Datastore Connection"],
+    }),
+    patchSystemConnectionSecrets: build.mutation<
+      TestStatusMessage,
+      ConnectionConfigSecretsRequest
+    >({
+      query: ({ secrets, systemFidesKey }) => ({
+        url: `/system/${systemFidesKey}/connection/secrets?verify=false`,
+        method: "PATCH",
+        body: secrets,
+      }),
+      invalidatesTags: () => ["System", "Datastore Connection"],
+    }),
+    getSystemConnectionConfigs: build.query<
+      ConnectionConfigurationResponse[],
+      string
+    >({
+      query: (systemFidesKey) => ({
+        url: `/system/${systemFidesKey}/connection`,
+      }),
+      providesTags: ["Datamap", "System", "Datastore Connection"],
+    }),
+    deleteSystemConnectionConfig: build.mutation({
+      query: (systemFidesKey) => ({
+        url: `/system/${systemFidesKey}/connection`,
+        method: "DELETE",
+      }),
+      invalidatesTags: () => ["Datastore Connection", "System"],
     }),
   }),
 });
@@ -85,6 +162,11 @@ export const {
   useUpdateSystemMutation,
   useDeleteSystemMutation,
   useUpsertSystemsMutation,
+  usePatchSystemConnectionConfigsMutation,
+  useDeleteSystemConnectionConfigMutation,
+  useGetSystemConnectionConfigsQuery,
+  usePatchSystemConnectionSecretsMutation,
+  useLazyGetSystemByFidesKeyQuery,
 } = systemApi;
 
 export interface State {
@@ -139,9 +221,10 @@ export const selectActiveClassifySystemFidesKey = createSelector(
   (state) => state.activeClassifySystemFidesKey
 );
 
+const emptySelectAllSystems: SystemResponse[] = [];
 export const selectAllSystems = createSelector(
-  systemApi.endpoints.getAllSystems.select(),
-  ({ data }) => data
+  [(RootState) => RootState, systemApi.endpoints.getAllSystems.select()],
+  (RootState, { data }) => data || emptySelectAllSystems
 );
 
 export const selectActiveClassifySystem = createSelector(
@@ -150,7 +233,6 @@ export const selectActiveClassifySystem = createSelector(
     if (fidesKey === undefined) {
       return undefined;
     }
-
     const system = allSystems?.find((s) => s.fides_key === fidesKey);
     return system;
   }

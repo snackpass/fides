@@ -1,17 +1,15 @@
 """Contains reusable utils for the CLI commands."""
 
 import json
-import pprint
-import sys
 from datetime import datetime, timezone
 from functools import update_wrapper
 from importlib.metadata import version
 from os import getenv
 from platform import system
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Optional, Union
 
-import click
 import requests
+import rich_click as click
 from fideslog.sdk.python.client import AnalyticsClient
 from fideslog.sdk.python.event import AnalyticsEvent
 from fideslog.sdk.python.exceptions import AnalyticsError
@@ -20,14 +18,23 @@ from fideslog.sdk.python.utils import (
     EMAIL_PROMPT,
     FIDESCTL_CLI,
     OPT_OUT_COPY,
-    OPT_OUT_PROMPT,
     ORGANIZATION_PROMPT,
     generate_client_id,
 )
 from requests import get, put
 
 import fides
-from fides.api.ops.api.v1.urn_registry import REGISTRATION, V1_URL_PREFIX
+from fides.common.api.v1.urn_registry import REGISTRATION, V1_URL_PREFIX
+from fides.common.utils import check_response, echo_green, echo_red
+from fides.config import FidesConfig
+from fides.config.credentials_settings import (
+    get_config_aws_credentials,
+    get_config_bigquery_credentials,
+    get_config_database_credentials,
+    get_config_okta_credentials,
+)
+from fides.config.helpers import get_config_from_file
+from fides.config.utils import get_dev_mode
 from fides.connectors.models import (
     AWSConfig,
     BigQueryConfig,
@@ -35,20 +42,11 @@ from fides.connectors.models import (
     OktaConfig,
 )
 from fides.core import api as _api
-from fides.core.config import FidesConfig
-from fides.core.config.credentials_settings import (
-    get_config_aws_credentials,
-    get_config_bigquery_credentials,
-    get_config_database_credentials,
-    get_config_okta_credentials,
-)
-from fides.core.config.helpers import get_config_from_file, update_config_file
-from fides.core.config.utils import get_dev_mode
-from fides.core.utils import check_response, echo_green, echo_red
 
 APP = fides.__name__
 PACKAGE = "ethyca-fides"
 FIDES_ASCII_ART = """
+
 ███████╗██╗██████╗ ███████╗███████╗
 ██╔════╝██║██╔══██╗██╔════╝██╔════╝
 █████╗  ██║██║  ██║█████╗  ███████╗
@@ -67,10 +65,16 @@ def check_server_health(server_url: str, verbose: bool = True) -> requests.Respo
     except requests.exceptions.ConnectionError:
         if verbose:
             echo_red(
-                f"Connection failed, webserver is unreachable at URL:\n{healthcheck_url}."
+                f"Connection failed, webserver is unreachable at URL:\n{healthcheck_url}"
             )
         raise SystemExit(1)
     return health_response
+
+
+def compare_application_versions(server_version: str, cli_version: str) -> bool:
+    """Normalize and compare application versions."""
+    normalize_version = lambda v: str(v).replace(".dirty", "", 1)
+    return normalize_version(server_version) == normalize_version(cli_version)
 
 
 def check_server(cli_version: str, server_url: str, quiet: bool = False) -> None:
@@ -83,8 +87,7 @@ def check_server(cli_version: str, server_url: str, quiet: bool = False) -> None
         raise SystemExit(1)
 
     server_version = health_response.json()["version"]
-    normalize_version = lambda v: str(v).replace(".dirty", "", 1)
-    if normalize_version(server_version) == normalize_version(cli_version):
+    if compare_application_versions(server_version, cli_version):
         if not quiet:
             echo_green(
                 "Server is reachable and the client/server application versions match."
@@ -93,30 +96,6 @@ def check_server(cli_version: str, server_url: str, quiet: bool = False) -> None
         echo_red(
             f"Mismatched versions!\nServer Version: {server_version}\nCLI Version: {cli_version}"
         )
-
-
-def pretty_echo(dict_object: Union[Dict, str], color: str = "white") -> None:
-    """
-    Given a dict-like object and a color, pretty click echo it.
-    """
-    click.secho(pprint.pformat(dict_object, indent=2, width=80, compact=True), fg=color)
-
-
-def handle_cli_response(
-    response: requests.Response, verbose: bool = True
-) -> requests.Response:
-    """Viewable CLI response"""
-    if response.status_code >= 200 and response.status_code <= 299:
-        if verbose:
-            pretty_echo(response.json(), "green")
-    else:
-        try:
-            pretty_echo(response.json(), "red")
-        except json.JSONDecodeError:
-            click.secho(response.text, fg="red")
-        finally:
-            sys.exit(1)
-    return response
 
 
 def is_user_registered(config: FidesConfig) -> bool:
@@ -144,70 +123,50 @@ def register_user(config: FidesConfig, email: str, organization: str) -> None:
     )
 
 
-def check_and_update_analytics_config(
-    config: FidesConfig, config_path: str
-) -> FidesConfig:
+def request_analytics_consent(config: FidesConfig, opt_in: bool = False) -> FidesConfig:
     """
-    Verify that the analytics opt-out value is populated. If not,
-    prompt the user to opt-in to analytics and update the config
-    file with their preferences if needed.
+    Request the user's consent for analytics collection.
 
-    NOTE: This doesn't handle the case where we've collected consent for this
-    CLI instance, but are connected to a server for the first time that is
-    unregistered. This *should* be something we can detect and then
-    "re-prompt" the user for their email/org information, but right
-    now a lot of our test automation runs headless and this kind of
-    prompt can't be skipped otherwise.
+    This function should only be called when specifically wanting to ask
+    for the user's consent, otherwise it will ask repeatedly for consent
+    unless they've opted in.
     """
 
-    config_updates: Dict[str, Dict] = {}
-    if config.user.analytics_opt_out is None:
-        click.echo(OPT_OUT_COPY)
-        config.user.analytics_opt_out = bool(
-            input(OPT_OUT_PROMPT + "\n").lower() == "n"
+    analytics_env_var = getenv("FIDES__USER__ANALYTICS_OPT_OUT")
+    if analytics_env_var and analytics_env_var.lower() != "false":
+        return config
+
+    if analytics_env_var and analytics_env_var.lower() == "true":
+        opt_in = True
+
+    # Otherwise, ask for consent
+    print(OPT_OUT_COPY)
+    if not opt_in:
+        config.user.analytics_opt_out = not click.confirm(
+            "Opt-in to anonymous usage analytics?"
         )
+    else:
+        config.user.analytics_opt_out = opt_in
 
-        config_updates.update(user={"analytics_opt_out": config.user.analytics_opt_out})
-
-        # If we've not opted out, attempt to register the user if they are
-        # currently connected to a Fides server
-        if config.user.analytics_opt_out is False:
-            server_url = str(config.cli.server_url) or ""
-            try:
-                check_server_health(server_url, verbose=False)
-                should_attempt_registration = not is_user_registered(config)
-            except SystemExit:
-                should_attempt_registration = False
-
-            if should_attempt_registration:
-                email = input(EMAIL_PROMPT)
-                organization = input(ORGANIZATION_PROMPT)
-                if email and organization:
-                    register_user(config, email, organization)
-
-            # Either way, thank the user for their opt-in for analytics!
-            click.echo(CONFIRMATION_COPY)
-
-    # Update the analytics ID in the config file if necessary
-    is_analytics_id_config_empty = get_config_from_file(
-        config_path,
-        "cli",
-        "analytics_id",
-    ) in ("", None)
-    is_analytics_id_env_var_set = getenv("FIDES__CLI__ANALYTICS_ID")
-    if (
-        not config.user.analytics_opt_out
-        and is_analytics_id_config_empty
-        and not is_analytics_id_env_var_set
-    ):
-        config_updates.update(cli={"analytics_id": config.cli.analytics_id})
-
-    if len(config_updates) > 0:
+    # If we've not opted out, attempt to register the user if they are
+    # currently connected to a Fides server
+    if not config.user.analytics_opt_out:
+        server_url = str(config.cli.server_url) or ""
         try:
-            update_config_file(config_updates, config_path)
-        except FileNotFoundError as err:
-            echo_red(f"Failed to update config file ({config_path}): {err.strerror}")
-            click.echo("Run 'fides init' to create a configuration file.")
+            check_server_health(server_url, verbose=False)
+            should_attempt_registration = not is_user_registered(config)
+        except SystemExit:
+            should_attempt_registration = False
+
+        if should_attempt_registration:
+            email = input(EMAIL_PROMPT)
+            organization = input(ORGANIZATION_PROMPT)
+            if email and organization:
+                register_user(config, email, organization)
+
+        # Either way, thank the user for their opt-in for analytics!
+        click.echo(CONFIRMATION_COPY)
+
     return config
 
 
@@ -288,16 +247,6 @@ def with_analytics(func: Callable) -> Callable:
     return update_wrapper(wrapper_func, func)
 
 
-def print_divider(character: str = "-", character_length: int = 10) -> None:
-    """
-    Returns a consistent divider to print to the console for use within fides
-
-    Defaults to using a hyphen of length 10, however this can optionally be
-    overridden as required.
-    """
-    print(character * character_length)
-
-
 def handle_database_credentials_options(
     fides_config: FidesConfig, connection_string: str, credentials_id: str
 ) -> str:
@@ -360,6 +309,7 @@ def handle_aws_credentials_options(
     fides_config: FidesConfig,
     access_key_id: str,
     secret_access_key: str,
+    session_token: str,
     region: str,
     credentials_id: str,
 ) -> Optional[AWSConfig]:
@@ -381,6 +331,7 @@ def handle_aws_credentials_options(
         aws_config = AWSConfig(
             aws_access_key_id=access_key_id,
             aws_secret_access_key=secret_access_key,
+            aws_session_token=session_token,
             region_name=region,
         )
     if credentials_id:

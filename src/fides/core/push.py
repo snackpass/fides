@@ -4,12 +4,11 @@ from pprint import pprint
 from typing import Dict, List, Tuple
 
 from deepdiff import DeepDiff
-from fideslang import FidesModel, Taxonomy
+from fideslang.models import FidesModel, Taxonomy
 
-from fides.cli.utils import handle_cli_response
+from fides.common.utils import echo_green, echo_red, handle_cli_response
 from fides.core import api
 from fides.core.api_helpers import get_server_resources
-from fides.core.utils import echo_green, echo_red
 
 
 def sort_create_update(
@@ -81,14 +80,14 @@ def get_orphan_datasets(taxonomy: Taxonomy) -> List:
     referenced_datasets.update(
         [
             dataset_reference
-            for resource in taxonomy.system
+            for resource in taxonomy.system or []
             for privacy_declaration in resource.privacy_declarations
             if privacy_declaration.dataset_references is not None
             for dataset_reference in privacy_declaration.dataset_references
         ]
     )
 
-    datasets.update([resource.fides_key for resource in taxonomy.dataset])
+    datasets.update([resource.fides_key for resource in taxonomy.dataset or []])
 
     missing_datasets = list(datasets - referenced_datasets)
 

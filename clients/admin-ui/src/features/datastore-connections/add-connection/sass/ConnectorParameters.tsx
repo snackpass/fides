@@ -6,14 +6,13 @@ import {
   setConnection,
 } from "connection-type/connection-type.slice";
 import { ConnectionTypeSecretSchemaReponse } from "connection-type/types";
-import { SaasType } from "datastore-connections/constants";
 import {
-  useCreateSassConnectionConfigMutation,
+  useCreateUnlinkedSassConnectionConfigMutation,
   usePatchDatastoreConnectionMutation,
   useUpdateDatastoreConnectionSecretsMutation,
 } from "datastore-connections/datastore-connection.slice";
 import {
-  CreateSassConnectionConfigRequest,
+  CreateSaasConnectionConfigRequest,
   DatastoreConnectionRequest,
   DatastoreConnectionSecretsRequest,
 } from "datastore-connections/types";
@@ -57,7 +56,8 @@ export const ConnectorParameters: React.FC<ConnectorParametersProps> = ({
     selectConnectionTypeState
   );
 
-  const [createSassConnectionConfig] = useCreateSassConnectionConfigMutation();
+  const [createSassConnectionConfig] =
+    useCreateUnlinkedSassConnectionConfigMutation();
   const [patchDatastoreConnection] = usePatchDatastoreConnectionMutation();
   const [updateDatastoreConnectionSecrets] =
     useUpdateDatastoreConnectionSecretsMutation();
@@ -105,16 +105,18 @@ export const ConnectorParameters: React.FC<ConnectorParametersProps> = ({
         }
       } else {
         // Create new Sass connector
-        const params: CreateSassConnectionConfigRequest = {
+        const params: CreateSaasConnectionConfigRequest = {
           description: values.description,
           name: values.name,
           instance_key: formatKey(values.instance_key as string),
-          saas_connector_type: connectionOption!.identifier as SaasType,
+          saas_connector_type: connectionOption!.identifier,
           secrets: {},
         };
         Object.entries(data.properties).forEach((key) => {
           params.secrets[key[0]] = values[key[0]];
         });
+
+        // @ts-ignore
         const payload = await createSassConnectionConfig(params).unwrap();
         dispatch(setConnection(payload.connection));
         successAlert(`Connector successfully added!`);
@@ -131,9 +133,8 @@ export const ConnectorParameters: React.FC<ConnectorParametersProps> = ({
     <>
       <Box color="gray.700" fontSize="14px" h="80px">
         Connect to your {connectionOption!.human_readable} environment by
-        providing credential information below. Once you have saved your
-        connector credentials, you can review what data is included when
-        processing a privacy request in your Dataset configuration.
+        providing the information below. Once you have saved the form, you may
+        test the integration to confirm that it&apos;s working correctly.
       </Box>
       <ConnectorParametersForm
         data={data}

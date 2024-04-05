@@ -1,14 +1,23 @@
 saas_config:
   fides_key: <instance_fides_key>
-  name: Domo SaaS Config
+  name: Domo
   type: domo
-  description: A sample schema representing the Domo connector for Fidesops
-  version: 0.0.1
+  description: A sample schema representing the Domo connector for Fides
+  user_guide: https://docs.ethyca.com/user-guides/integrations/saas-integrations/domo
+  version: 0.0.3
 
   connector_params:
     - name: domain
+      default_value: api.domo.com
+      label: Domain
+      description: Your Domo domain
     - name: client_id
+      label: Client ID
+      description: Your Domo client ID
     - name: client_secret
+      label: Client secret
+      description: Your Domo client secret
+      sensitive: True
 
   client_config:
     protocol: https

@@ -1,26 +1,47 @@
+import {
+  Flex,
+  Heading,
+  Link,
+  Text,
+  Stack,
+  useToast,
+  useDisclosure,
+} from "@fidesui/react";
 import React, { useEffect, useState } from "react";
 import type { NextPage } from "next";
 import Head from "next/head";
 import { useRouter } from "next/router";
-import { Flex, Heading, Text, Stack, Image, useToast } from "@fidesui/react";
 import { ConfigErrorToastOptions } from "~/common/toast-options";
 
 import {
-  usePrivactRequestModal,
+  usePrivacyRequestModal,
   PrivacyRequestModal,
 } from "~/components/modals/privacy-request-modal/PrivacyRequestModal";
 import {
   useConsentRequestModal,
   ConsentRequestModal,
 } from "~/components/modals/consent-request-modal/ConsentRequestModal";
-import { config } from "~/constants";
 import { useGetIdVerificationConfigQuery } from "~/features/id-verification";
 import PrivacyCard from "~/components/PrivacyCard";
-import ConsentCard from "~/components/ConsentCard";
+import ConsentCard from "~/components/consent/ConsentCard";
+import { useConfig } from "~/features/common/config.slice";
+import { useSubscribeToPrivacyExperienceQuery } from "~/features/consent/hooks";
+import { useAppDispatch, useAppSelector } from "~/app/hooks";
+import {
+  clearLocation,
+  selectPrivacyExperience,
+  setLocation,
+} from "~/features/consent/consent.slice";
+import NoticeEmptyStateModal from "~/components/modals/NoticeEmptyStateModal";
+import { selectIsNoticeDriven } from "~/features/common/settings.slice";
 
 const Home: NextPage = () => {
   const router = useRouter();
+  const dispatch = useAppDispatch();
+  const config = useConfig();
   const [isVerificationRequired, setIsVerificationRequired] =
+    useState<boolean>(false);
+  const [isConsentVerificationDisabled, setIsConsentVerificationDisabled] =
     useState<boolean>(false);
   const toast = useToast();
   const {
@@ -33,10 +54,10 @@ const Home: NextPage = () => {
     privacyRequestId,
     setPrivacyRequestId,
     successHandler: privacyModalSuccessHandler,
-  } = usePrivactRequestModal();
+  } = usePrivacyRequestModal();
 
   const {
-    isOpen: isConsentModalOpen,
+    isOpen: isConsentModalOpenConst,
     onOpen: onConsentModalOpen,
     onClose: onConsentModalClose,
     currentView: currentConsentModalView,
@@ -45,8 +66,41 @@ const Home: NextPage = () => {
     setConsentRequestId,
     successHandler: consentModalSuccessHandler,
   } = useConsentRequestModal();
-
+  let isConsentModalOpen = isConsentModalOpenConst;
   const getIdVerificationConfigQuery = useGetIdVerificationConfigQuery();
+
+  // Subscribe to experiences just to see if there are any notices.
+  // The subscription automatically handles skipping if overlay is not enabled
+  useSubscribeToPrivacyExperienceQuery();
+  const noticeEmptyStateModal = useDisclosure();
+
+  useEffect(() => {
+    if (router.query.geolocation) {
+      // Ensure the query parameter is a string
+      const geolocation = Array.isArray(router.query.geolocation)
+        ? router.query.geolocation[0]
+        : router.query.geolocation;
+
+      dispatch(setLocation(geolocation));
+    } else {
+      // clear the location override if the geolocation query param isn't provided
+      dispatch(clearLocation());
+    }
+  }, [router.query.geolocation, dispatch]);
+
+  const experience = useAppSelector(selectPrivacyExperience);
+  const isNoticeDriven = useAppSelector(selectIsNoticeDriven);
+  const emptyNotices =
+    experience?.privacy_notices == null ||
+    experience.privacy_notices.length === 0;
+
+  const handleConsentCardOpen = () => {
+    if (isNoticeDriven && emptyNotices) {
+      noticeEmptyStateModal.onOpen();
+    } else {
+      onConsentModalOpen();
+    }
+  };
 
   useEffect(() => {
     if (getIdVerificationConfigQuery.isError) {
@@ -63,8 +117,16 @@ const Home: NextPage = () => {
       setIsVerificationRequired(
         getIdVerificationConfigQuery.data.identity_verification_required
       );
+      setIsConsentVerificationDisabled(
+        getIdVerificationConfigQuery.data.disable_consent_identity_verification
+      );
     }
-  }, [getIdVerificationConfigQuery, setIsVerificationRequired, toast]);
+  }, [
+    getIdVerificationConfigQuery,
+    setIsVerificationRequired,
+    setIsConsentVerificationDisabled,
+    toast,
+  ]);
 
   const content: any = [
     <ConsentCard
@@ -93,12 +155,17 @@ const Home: NextPage = () => {
     content.push(
       <ConsentCard
         key="consentCard"
-        title={config.consent.title}
-        iconPath={config.consent.icon_path}
-        description={config.consent.description}
-        onOpen={onConsentModalOpen}
+        title={config.consent.button.title}
+        iconPath={config.consent.button.icon_path}
+        description={config.consent.button.description}
+        onOpen={handleConsentCardOpen}
       />
     );
+    if (router.query?.showConsentModal === "true") {
+      // manually override whether to show the consent modal given
+      // the query param `showConsentModal`
+      isConsentModalOpen = true;
+    }
   }
 
   return (
@@ -109,24 +176,16 @@ const Home: NextPage = () => {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <header>
-        <Flex
-          bg="gray.100"
-          minHeight={14}
-          p={1}
-          width="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <Image
-            src={config.logo_path}
-            margin="8px"
-            height="68px"
-            alt="Logo"
-            data-testid="logo"
-          />
-        </Flex>
-      </header>
+      <Text
+        fontSize={["small", "medium"]}
+        fontWeight="medium"
+        maxWidth={624}
+        textAlign="center"
+        color="gray.600"
+        data-testid="description"
+      >
+        {config.description}
+      </Text>
 
       <main
         data-testid="home"
@@ -149,20 +208,51 @@ const Home: NextPage = () => {
             >
               {config.title}
             </Heading>
-            <Text
-              fontSize={["small", "medium"]}
-              fontWeight="medium"
-              maxWidth={624}
-              textAlign="center"
-              color="gray.600"
-              data-testid="description"
-            >
-              {config.description}
-            </Text>
+            {config.description_subtext?.map((paragraph, index) => (
+              <Text
+                fontSize={["small", "medium"]}
+                fontWeight="medium"
+                maxWidth={624}
+                textAlign="center"
+                color="gray.600"
+                data-testid={`description-${index}`}
+                // eslint-disable-next-line react/no-array-index-key
+                key={`description-${index}`}
+              >
+                {paragraph}
+              </Text>
+            ))}
           </Stack>
           <Flex m={-2} flexDirection={["column", "column", "row"]}>
             {content}
           </Flex>
+
+          {config.addendum?.map((paragraph, index) => (
+            <Text
+              fontSize={["small", "medium"]}
+              fontWeight="medium"
+              maxWidth={624}
+              color="gray.600"
+              data-testid={`addendum-${index}`}
+              // eslint-disable-next-line react/no-array-index-key
+              key={`addendum-${index}`}
+            >
+              {paragraph}
+            </Text>
+          ))}
+          {config.privacy_policy_url && config.privacy_policy_url_text ? (
+            <Link
+              fontSize={["small", "medium"]}
+              fontWeight="medium"
+              textAlign="center"
+              textDecoration="underline"
+              color="gray.600"
+              href={config.privacy_policy_url}
+              isExternal
+            >
+              {config.privacy_policy_url_text}
+            </Link>
+          ) : null}
         </Stack>
         <PrivacyRequestModal
           isOpen={isPrivacyModalOpen}
@@ -183,8 +273,15 @@ const Home: NextPage = () => {
           setCurrentView={setCurrentConsentModalView}
           consentRequestId={consentRequestId}
           setConsentRequestId={setConsentRequestId}
-          isVerificationRequired={isVerificationRequired}
+          isVerificationRequired={
+            isVerificationRequired && !isConsentVerificationDisabled
+          }
           successHandler={consentModalSuccessHandler}
+        />
+
+        <NoticeEmptyStateModal
+          isOpen={noticeEmptyStateModal.isOpen}
+          onClose={noticeEmptyStateModal.onClose}
         />
       </main>
     </div>

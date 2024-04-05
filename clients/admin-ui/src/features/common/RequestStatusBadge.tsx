@@ -13,7 +13,7 @@ export const statusPropMap: {
     bg: "green.500",
     label: "Completed",
   },
-  awaiting_consent_email_send: {
+  awaiting_email_send: {
     bg: "gray.400",
     label: "Awaiting Email Send",
   },
@@ -60,6 +60,7 @@ const RequestStatusBadge: React.FC<RequestBadgeProps> = ({ status }) => (
     color="white"
     bg={statusPropMap[status].bg}
     width="100%"
+    minWidth="120px"
     lineHeight="18px"
     textAlign="center"
     data-testid="request-status-badge"

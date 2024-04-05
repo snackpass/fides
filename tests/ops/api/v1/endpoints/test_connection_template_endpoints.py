@@ -1,43 +1,38 @@
+from typing import List, Set
 from unittest import mock
 
 import pytest
 from starlette.testclient import TestClient
 
-from fides.api.ops.api.v1.scope_registry import (
+from fides.api.models.client import ClientDetail
+from fides.api.models.connectionconfig import (
+    AccessLevel,
+    ConnectionConfig,
+    ConnectionType,
+)
+from fides.api.models.datasetconfig import DatasetConfig
+from fides.api.models.policy import ActionType
+from fides.api.schemas.connection_configuration.enums.system_type import SystemType
+from fides.api.service.connectors.saas.connector_registry_service import (
+    ConnectorRegistry,
+)
+from fides.common.api.scope_registry import (
     CONNECTION_READ,
     CONNECTION_TYPE_READ,
     SAAS_CONNECTION_INSTANTIATE,
 )
-from fides.api.ops.api.v1.urn_registry import (
+from fides.common.api.v1.urn_registry import (
     CONNECTION_TYPE_SECRETS,
     CONNECTION_TYPES,
     SAAS_CONNECTOR_FROM_TEMPLATE,
     V1_URL_PREFIX,
 )
-from fides.api.ops.models.connectionconfig import (
-    AccessLevel,
-    ConnectionConfig,
-    ConnectionType,
-)
-from fides.api.ops.models.datasetconfig import DatasetConfig
-from fides.api.ops.schemas.connection_configuration.connection_config import SystemType
-from fides.api.ops.service.connectors.saas.connector_registry_service import (
-    ConnectorRegistry,
-    load_registry,
-    registry_file,
-)
-from fides.api.ops.util.saas_util import encode_file_contents
-from fides.lib.models.client import ClientDetail
 
 
 class TestGetConnections:
     @pytest.fixture(scope="function")
     def url(self, oauth_client: ClientDetail, policy) -> str:
-        return V1_URL_PREFIX + CONNECTION_TYPES
-
-    @pytest.fixture(scope="session")
-    def saas_template_registry(self):
-        return load_registry(registry_file)
+        return V1_URL_PREFIX + CONNECTION_TYPES + "?"
 
     def test_get_connection_types_not_authenticated(self, api_client, url):
         resp = api_client.get(url, headers={})
@@ -55,7 +50,6 @@ class TestGetConnections:
         api_client: TestClient,
         generate_auth_header,
         url,
-        saas_template_registry: ConnectorRegistry,
     ) -> None:
         auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
         resp = api_client.get(url, headers=auth_header)
@@ -63,24 +57,30 @@ class TestGetConnections:
         assert resp.status_code == 200
         assert (
             len(data)
-            == len(ConnectionType) + len(saas_template_registry.connector_types()) - 5
-        )  # there are 5 connection types that are not returned by the endpoint
+            == len(ConnectionType) + len(ConnectorRegistry.connector_types()) - 4
+        )  # there are 4 connection types that are not returned by the endpoint
 
         assert {
             "identifier": ConnectionType.postgres.value,
             "type": SystemType.database.value,
             "human_readable": "PostgreSQL",
             "encoded_icon": None,
+            "authorization_required": False,
+            "user_guide": None,
+            "supported_actions": [ActionType.access.value, ActionType.erasure.value],
         } in data
-        first_saas_type = saas_template_registry.connector_types().pop()
-        first_saas_template = saas_template_registry.get_connector_template(
-            first_saas_type
-        )
+        first_saas_type = ConnectorRegistry.connector_types().pop()
+        first_saas_template = ConnectorRegistry.get_connector_template(first_saas_type)
         assert {
             "identifier": first_saas_type,
             "type": SystemType.saas.value,
             "human_readable": first_saas_template.human_readable,
-            "encoded_icon": encode_file_contents(first_saas_template.icon),
+            "encoded_icon": first_saas_template.icon,
+            "authorization_required": first_saas_template.authorization_required,
+            "user_guide": first_saas_template.user_guide,
+            "supported_actions": [
+                action.value for action in first_saas_template.supported_actions
+            ],
         } in data
 
         assert "saas" not in [item["identifier"] for item in data]
@@ -88,12 +88,58 @@ class TestGetConnections:
         assert "custom" not in [item["identifier"] for item in data]
         assert "manual" not in [item["identifier"] for item in data]
 
+    def test_get_connection_types_size_param(
+        self,
+        api_client: TestClient,
+        generate_auth_header,
+        url,
+    ) -> None:
+        """Test to ensure size param works as expected since it overrides default value"""
+
+        # ensure default size is 100 (effectively testing that here since we have > 50 connectors)
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(url, headers=auth_header)
+        data = resp.json()["items"]
+        assert resp.status_code == 200
+        assert (
+            len(data)
+            == len(ConnectionType) + len(ConnectorRegistry.connector_types()) - 4
+        )  # there are 4 connection types that are not returned by the endpoint
+        # this value is > 50, so we've efectively tested our "default" size is
+        # > than the default of 50 (it's 100!)
+
+        # ensure specifying size works as expected
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(url + "size=50", headers=auth_header)
+        data = resp.json()["items"]
+        assert resp.status_code == 200
+        assert (
+            len(data) == 50
+        )  # should be 50 items in response since we explicitly set size=50
+
+        # ensure specifying size and page works as expected
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(url + "size=2", headers=auth_header)
+        data = resp.json()["items"]
+        assert resp.status_code == 200
+        assert (
+            len(data) == 2
+        )  # should be 2 items in response since we explicitly set size=2
+        page_1_response = data  # save this response for comparison below
+        # now get second page
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(url + "size=2&page=2", headers=auth_header)
+        data = resp.json()["items"]
+        assert resp.status_code == 200
+        assert len(data) == 2  # should be 2 items on second page too
+        # second page should be different than first page!
+        assert data != page_1_response
+
     def test_search_connection_types(
         self,
         api_client,
         generate_auth_header,
         url,
-        saas_template_registry: ConnectorRegistry,
     ):
         auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
 
@@ -101,9 +147,9 @@ class TestGetConnections:
         expected_saas_templates = [
             (
                 connector_type,
-                saas_template_registry.get_connector_template(connector_type),
+                ConnectorRegistry.get_connector_template(connector_type),
             )
-            for connector_type in saas_template_registry.connector_types()
+            for connector_type in ConnectorRegistry.connector_types()
             if search.lower() in connector_type.lower()
         ]
         expected_saas_data = [
@@ -111,12 +157,17 @@ class TestGetConnections:
                 "identifier": saas_template[0],
                 "type": SystemType.saas.value,
                 "human_readable": saas_template[1].human_readable,
-                "encoded_icon": encode_file_contents(saas_template[1].icon),
+                "encoded_icon": saas_template[1].icon,
+                "authorization_required": saas_template[1].authorization_required,
+                "user_guide": saas_template[1].user_guide,
+                "supported_actions": [
+                    action.value for action in saas_template[1].supported_actions
+                ],
             }
             for saas_template in expected_saas_templates
         ]
 
-        resp = api_client.get(url + f"?search={search}", headers=auth_header)
+        resp = api_client.get(url + f"search={search}", headers=auth_header)
         assert resp.status_code == 200
         data = resp.json()["items"]
 
@@ -127,9 +178,9 @@ class TestGetConnections:
         expected_saas_templates = [
             (
                 connector_type,
-                saas_template_registry.get_connector_template(connector_type),
+                ConnectorRegistry.get_connector_template(connector_type),
             )
-            for connector_type in saas_template_registry.connector_types()
+            for connector_type in ConnectorRegistry.connector_types()
             if search.lower() in connector_type.lower()
         ]
         expected_saas_data = [
@@ -137,39 +188,46 @@ class TestGetConnections:
                 "identifier": saas_template[0],
                 "type": SystemType.saas.value,
                 "human_readable": saas_template[1].human_readable,
-                "encoded_icon": encode_file_contents(saas_template[1].icon),
+                "encoded_icon": saas_template[1].icon,
+                "authorization_required": saas_template[1].authorization_required,
+                "user_guide": saas_template[1].user_guide,
+                "supported_actions": [
+                    action.value for action in saas_template[1].supported_actions
+                ],
             }
             for saas_template in expected_saas_templates
         ]
 
-        resp = api_client.get(url + f"?search={search}", headers=auth_header)
+        resp = api_client.get(url + f"search={search}", headers=auth_header)
         assert resp.status_code == 200
         data = resp.json()["items"]
 
-        # 2 constant non-saas connection types match the search string
-        assert len(data) == len(expected_saas_templates) + 2
+        # 3 constant non-saas connection types match the search string
+        assert len(data) == len(expected_saas_templates) + 3
 
         assert {
             "identifier": ConnectionType.postgres.value,
             "type": SystemType.database.value,
             "human_readable": "PostgreSQL",
             "encoded_icon": None,
+            "authorization_required": False,
+            "user_guide": None,
+            "supported_actions": [ActionType.access.value, ActionType.erasure.value],
         } in data
         assert {
             "identifier": ConnectionType.redshift.value,
             "type": SystemType.database.value,
             "human_readable": "Amazon Redshift",
             "encoded_icon": None,
+            "authorization_required": False,
+            "user_guide": None,
+            "supported_actions": [ActionType.access.value, ActionType.erasure.value],
         } in data
         for expected_data in expected_saas_data:
-            assert expected_data in data
+            assert expected_data in data, f"{expected_data} not in"
 
     def test_search_connection_types_case_insensitive(
-        self,
-        api_client,
-        generate_auth_header,
-        url,
-        saas_template_registry: ConnectorRegistry,
+        self, api_client, generate_auth_header, url
     ):
         auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
 
@@ -177,9 +235,9 @@ class TestGetConnections:
         expected_saas_types = [
             (
                 connector_type,
-                saas_template_registry.get_connector_template(connector_type),
+                ConnectorRegistry.get_connector_template(connector_type),
             )
-            for connector_type in saas_template_registry.connector_types()
+            for connector_type in ConnectorRegistry.connector_types()
             if search.lower() in connector_type.lower()
         ]
         expected_saas_data = [
@@ -187,12 +245,17 @@ class TestGetConnections:
                 "identifier": saas_template[0],
                 "type": SystemType.saas.value,
                 "human_readable": saas_template[1].human_readable,
-                "encoded_icon": encode_file_contents(saas_template[1].icon),
+                "encoded_icon": saas_template[1].icon,
+                "authorization_required": saas_template[1].authorization_required,
+                "user_guide": saas_template[1].user_guide,
+                "supported_actions": [
+                    action.value for action in saas_template[1].supported_actions
+                ],
             }
             for saas_template in expected_saas_types
         ]
 
-        resp = api_client.get(url + f"?search={search}", headers=auth_header)
+        resp = api_client.get(url + f"search={search}", headers=auth_header)
 
         assert resp.status_code == 200
         data = resp.json()["items"]
@@ -203,18 +266,21 @@ class TestGetConnections:
             "type": SystemType.database.value,
             "human_readable": "PostgreSQL",
             "encoded_icon": None,
+            "authorization_required": False,
+            "user_guide": None,
+            "supported_actions": [ActionType.access.value, ActionType.erasure.value],
         } in data
 
         for expected_data in expected_saas_data:
-            assert expected_data in data
+            assert expected_data in data, f"{expected_data} not in"
 
         search = "Re"
         expected_saas_types = [
             (
                 connector_type,
-                saas_template_registry.get_connector_template(connector_type),
+                ConnectorRegistry.get_connector_template(connector_type),
             )
-            for connector_type in saas_template_registry.connector_types()
+            for connector_type in ConnectorRegistry.connector_types()
             if search.lower() in connector_type.lower()
         ]
         expected_saas_data = [
@@ -222,78 +288,82 @@ class TestGetConnections:
                 "identifier": saas_template[0],
                 "type": SystemType.saas.value,
                 "human_readable": saas_template[1].human_readable,
-                "encoded_icon": encode_file_contents(saas_template[1].icon),
+                "encoded_icon": saas_template[1].icon,
+                "authorization_required": saas_template[1].authorization_required,
+                "user_guide": saas_template[1].user_guide,
+                "supported_actions": [
+                    action.value for action in saas_template[1].supported_actions
+                ],
             }
             for saas_template in expected_saas_types
         ]
 
-        resp = api_client.get(url + f"?search={search}", headers=auth_header)
+        resp = api_client.get(url + f"search={search}", headers=auth_header)
         assert resp.status_code == 200
         data = resp.json()["items"]
-        # 2 constant non-saas connection types match the search string
-        assert len(data) == len(expected_saas_types) + 2
+        # 3 constant non-saas connection types match the search string
+        assert len(data) == len(expected_saas_types) + 3
         assert {
             "identifier": ConnectionType.postgres.value,
             "type": SystemType.database.value,
             "human_readable": "PostgreSQL",
             "encoded_icon": None,
+            "authorization_required": False,
+            "user_guide": None,
+            "supported_actions": [ActionType.access, ActionType.erasure],
         } in data
         assert {
             "identifier": ConnectionType.redshift.value,
             "type": SystemType.database.value,
             "human_readable": "Amazon Redshift",
             "encoded_icon": None,
+            "authorization_required": False,
+            "user_guide": None,
+            "supported_actions": [ActionType.access, ActionType.erasure],
         } in data
 
         for expected_data in expected_saas_data:
-            assert expected_data in data
+            assert expected_data in data, f"{expected_data} not in"
 
-    def test_search_system_type(
-        self,
-        api_client,
-        generate_auth_header,
-        url,
-        saas_template_registry: ConnectorRegistry,
-    ):
+    def test_search_system_type(self, api_client, generate_auth_header, url):
         auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
 
-        resp = api_client.get(url + "?system_type=nothing", headers=auth_header)
+        resp = api_client.get(url + "system_type=nothing", headers=auth_header)
         assert resp.status_code == 422
 
-        resp = api_client.get(url + "?system_type=saas", headers=auth_header)
+        resp = api_client.get(url + "system_type=saas", headers=auth_header)
         assert resp.status_code == 200
         data = resp.json()["items"]
-        assert len(data) == len(saas_template_registry.connector_types())
+        assert len(data) == len(ConnectorRegistry.connector_types())
 
-        resp = api_client.get(url + "?system_type=database", headers=auth_header)
+        resp = api_client.get(url + "system_type=database", headers=auth_header)
         assert resp.status_code == 200
         data = resp.json()["items"]
-        assert len(data) == 9
+        assert len(data) == 10
 
     def test_search_system_type_and_connection_type(
         self,
         api_client,
         generate_auth_header,
         url,
-        saas_template_registry: ConnectorRegistry,
     ):
         auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
 
         search = "str"
         resp = api_client.get(
-            url + f"?search={search}&system_type=saas", headers=auth_header
+            url + f"search={search}&system_type=saas", headers=auth_header
         )
         assert resp.status_code == 200
         data = resp.json()["items"]
         expected_saas_types = [
             connector_type
-            for connector_type in saas_template_registry.connector_types()
+            for connector_type in ConnectorRegistry.connector_types()
             if search.lower() in connector_type.lower()
         ]
         assert len(data) == len(expected_saas_types)
 
         resp = api_client.get(
-            url + "?search=re&system_type=database", headers=auth_header
+            url + "search=re&system_type=database", headers=auth_header
         )
         assert resp.status_code == 200
         data = resp.json()["items"]
@@ -302,7 +372,7 @@ class TestGetConnections:
     def test_search_manual_system_type(self, api_client, generate_auth_header, url):
         auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
 
-        resp = api_client.get(url + "?system_type=manual", headers=auth_header)
+        resp = api_client.get(url + "system_type=manual", headers=auth_header)
         assert resp.status_code == 200
         data = resp.json()["items"]
         assert len(data) == 1
@@ -310,26 +380,394 @@ class TestGetConnections:
             {
                 "identifier": "manual_webhook",
                 "type": "manual",
-                "human_readable": "Manual Webhook",
+                "human_readable": "Manual Process",
                 "encoded_icon": None,
+                "authorization_required": False,
+                "user_guide": None,
+                "supported_actions": [
+                    ActionType.access.value,
+                    ActionType.erasure.value,
+                ],
             }
         ]
 
     def test_search_email_type(self, api_client, generate_auth_header, url):
         auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
 
-        resp = api_client.get(url + "?system_type=email", headers=auth_header)
+        resp = api_client.get(url + "system_type=email", headers=auth_header)
         assert resp.status_code == 200
         data = resp.json()["items"]
-        assert len(data) == 1
+        assert len(data) == 4
         assert data == [
             {
+                "encoded_icon": None,
+                "human_readable": "Attentive",
+                "identifier": "attentive",
+                "type": "email",
+                "authorization_required": False,
+                "user_guide": None,
+                "supported_actions": [ActionType.erasure.value],
+            },
+            {
+                "encoded_icon": None,
+                "human_readable": "Generic Consent Email",
+                "identifier": "generic_consent_email",
+                "type": "email",
+                "authorization_required": False,
+                "user_guide": None,
+                "supported_actions": [ActionType.consent.value],
+            },
+            {
+                "encoded_icon": None,
+                "human_readable": "Generic Erasure Email",
+                "identifier": "generic_erasure_email",
+                "type": "email",
+                "authorization_required": False,
+                "user_guide": None,
+                "supported_actions": [ActionType.erasure.value],
+            },
+            {
+                "encoded_icon": None,
+                "human_readable": "Sovrn",
                 "identifier": "sovrn",
                 "type": "email",
+                "authorization_required": False,
+                "user_guide": None,
+                "supported_actions": [ActionType.consent.value],
+            },
+        ]
+
+
+DOORDASH = "doordash"
+GOOGLE_ANALYTICS = "google_analytics"
+MAILCHIMP_TRANSACTIONAL = "mailchimp_transactional"
+SEGMENT = "segment"
+STRIPE = "stripe"
+ZENDESK = "zendesk"
+
+
+class TestGetConnectionsActionTypeParams:
+    """
+    Class specifically for testing the "action type" query params for the get connection types endpoint.
+
+    This testing approach (and the fixtures) mimic what's done within `test_connection_type.py` to evaluate
+    the `action_type` filtering logic.
+
+    That test specifically tests the underlying utility that is leveraged by this endpoint.
+    """
+
+    @pytest.fixture(scope="function")
+    def url(self) -> str:
+        return V1_URL_PREFIX + CONNECTION_TYPES + "?"
+
+    @pytest.fixture(scope="function")
+    def url_with_params(self) -> str:
+        return (
+            V1_URL_PREFIX
+            + CONNECTION_TYPES
+            + "?consent={consent}"
+            + "&access={access}"
+            + "&erasure={erasure}"
+        )
+
+    @pytest.fixture
+    def connection_type_objects(self):
+        google_analytics_template = ConnectorRegistry.get_connector_template(
+            GOOGLE_ANALYTICS
+        )
+        mailchimp_transactional_template = ConnectorRegistry.get_connector_template(
+            MAILCHIMP_TRANSACTIONAL
+        )
+        stripe_template = ConnectorRegistry.get_connector_template("stripe")
+        zendesk_template = ConnectorRegistry.get_connector_template("zendesk")
+        doordash_template = ConnectorRegistry.get_connector_template(DOORDASH)
+        segment_template = ConnectorRegistry.get_connector_template(SEGMENT)
+
+        return {
+            ConnectionType.postgres.value: {
+                "identifier": ConnectionType.postgres.value,
+                "type": SystemType.database.value,
+                "human_readable": "PostgreSQL",
+                "encoded_icon": None,
+                "authorization_required": False,
+                "user_guide": None,
+                "supported_actions": [
+                    ActionType.access.value,
+                    ActionType.erasure.value,
+                ],
+            },
+            ConnectionType.manual_webhook.value: {
+                "identifier": ConnectionType.manual_webhook.value,
+                "type": SystemType.manual.value,
+                "human_readable": "Manual Process",
+                "encoded_icon": None,
+                "authorization_required": False,
+                "user_guide": None,
+                "supported_actions": [
+                    ActionType.access.value,
+                    ActionType.erasure.value,
+                ],
+            },
+            GOOGLE_ANALYTICS: {
+                "identifier": GOOGLE_ANALYTICS,
+                "type": SystemType.saas.value,
+                "human_readable": google_analytics_template.human_readable,
+                "encoded_icon": google_analytics_template.icon,
+                "authorization_required": True,
+                "user_guide": google_analytics_template.user_guide,
+                "supported_actions": [
+                    action.value
+                    for action in google_analytics_template.supported_actions
+                ],
+            },
+            MAILCHIMP_TRANSACTIONAL: {
+                "identifier": MAILCHIMP_TRANSACTIONAL,
+                "type": SystemType.saas.value,
+                "human_readable": mailchimp_transactional_template.human_readable,
+                "encoded_icon": mailchimp_transactional_template.icon,
+                "authorization_required": False,
+                "user_guide": mailchimp_transactional_template.user_guide,
+                "supported_actions": [
+                    action.value
+                    for action in mailchimp_transactional_template.supported_actions
+                ],
+            },
+            SEGMENT: {
+                "identifier": SEGMENT,
+                "type": SystemType.saas.value,
+                "human_readable": segment_template.human_readable,
+                "encoded_icon": segment_template.icon,
+                "authorization_required": False,
+                "user_guide": segment_template.user_guide,
+                "supported_actions": [
+                    action.value for action in segment_template.supported_actions
+                ],
+            },
+            STRIPE: {
+                "identifier": STRIPE,
+                "type": SystemType.saas.value,
+                "human_readable": stripe_template.human_readable,
+                "encoded_icon": stripe_template.icon,
+                "authorization_required": False,
+                "user_guide": stripe_template.user_guide,
+                "supported_actions": [
+                    action.value for action in stripe_template.supported_actions
+                ],
+            },
+            ZENDESK: {
+                "identifier": ZENDESK,
+                "type": SystemType.saas.value,
+                "human_readable": zendesk_template.human_readable,
+                "encoded_icon": zendesk_template.icon,
+                "authorization_required": False,
+                "user_guide": zendesk_template.user_guide,
+                "supported_actions": [
+                    action.value for action in zendesk_template.supported_actions
+                ],
+            },
+            DOORDASH: {
+                "identifier": DOORDASH,
+                "type": SystemType.saas.value,
+                "human_readable": doordash_template.human_readable,
+                "encoded_icon": doordash_template.icon,
+                "authorization_required": False,
+                "user_guide": doordash_template.user_guide,
+                "supported_actions": [
+                    action.value for action in doordash_template.supported_actions
+                ],
+            },
+            ConnectionType.sovrn.value: {
+                "identifier": ConnectionType.sovrn.value,
+                "type": SystemType.email.value,
                 "human_readable": "Sovrn",
                 "encoded_icon": None,
-            }
-        ]
+                "authorization_required": False,
+                "user_guide": None,
+                "supported_actions": [ActionType.consent.value],
+            },
+            ConnectionType.attentive.value: {
+                "identifier": ConnectionType.attentive.value,
+                "type": SystemType.email.value,
+                "human_readable": "Attentive",
+                "encoded_icon": None,
+                "authorization_required": False,
+                "user_guide": None,
+                "supported_actions": [ActionType.erasure.value],
+            },
+        }
+
+    @pytest.mark.parametrize(
+        "action_types, assert_in_data, assert_not_in_data",
+        [
+            (
+                [],  # no filters should give us all connectors
+                [
+                    ConnectionType.postgres.value,
+                    ConnectionType.manual_webhook.value,
+                    DOORDASH,
+                    STRIPE,
+                    ZENDESK,
+                    SEGMENT,
+                    ConnectionType.attentive.value,
+                    GOOGLE_ANALYTICS,
+                    MAILCHIMP_TRANSACTIONAL,
+                    ConnectionType.sovrn.value,
+                ],
+                [],
+            ),
+            (
+                [ActionType.consent],
+                [GOOGLE_ANALYTICS, MAILCHIMP_TRANSACTIONAL, ConnectionType.sovrn.value],
+                [
+                    ConnectionType.postgres.value,
+                    ConnectionType.manual_webhook.value,
+                    DOORDASH,
+                    STRIPE,
+                    ZENDESK,
+                    SEGMENT,
+                    ConnectionType.attentive.value,
+                ],
+            ),
+            (
+                [ActionType.access],
+                [
+                    ConnectionType.postgres.value,
+                    ConnectionType.manual_webhook.value,
+                    DOORDASH,
+                    SEGMENT,
+                    STRIPE,
+                    ZENDESK,
+                ],
+                [
+                    GOOGLE_ANALYTICS,
+                    MAILCHIMP_TRANSACTIONAL,
+                    ConnectionType.sovrn.value,
+                    ConnectionType.attentive.value,
+                ],
+            ),
+            (
+                [ActionType.erasure],
+                [
+                    ConnectionType.postgres.value,
+                    SEGMENT,  # segment has DPR so it is an erasure
+                    STRIPE,
+                    ZENDESK,
+                    ConnectionType.attentive.value,
+                    ConnectionType.manual_webhook.value,
+                ],
+                [
+                    GOOGLE_ANALYTICS,
+                    MAILCHIMP_TRANSACTIONAL,
+                    DOORDASH,  # doordash does not have erasures
+                    ConnectionType.sovrn.value,
+                ],
+            ),
+            (
+                [ActionType.consent, ActionType.access],
+                [
+                    GOOGLE_ANALYTICS,
+                    MAILCHIMP_TRANSACTIONAL,
+                    ConnectionType.sovrn.value,
+                    ConnectionType.postgres.value,
+                    ConnectionType.manual_webhook.value,
+                    DOORDASH,
+                    SEGMENT,
+                    STRIPE,
+                    ZENDESK,
+                ],
+                [
+                    ConnectionType.attentive.value,
+                ],
+            ),
+            (
+                [ActionType.consent, ActionType.erasure],
+                [
+                    GOOGLE_ANALYTICS,
+                    MAILCHIMP_TRANSACTIONAL,
+                    ConnectionType.sovrn.value,
+                    ConnectionType.postgres.value,
+                    SEGMENT,  # segment has DPR so it is an erasure
+                    STRIPE,
+                    ZENDESK,
+                    ConnectionType.attentive.value,
+                    ConnectionType.manual_webhook.value,
+                ],
+                [
+                    DOORDASH,  # doordash does not have erasures
+                ],
+            ),
+            (
+                [ActionType.access, ActionType.erasure],
+                [
+                    ConnectionType.postgres.value,
+                    ConnectionType.manual_webhook.value,
+                    DOORDASH,
+                    SEGMENT,
+                    STRIPE,
+                    ZENDESK,
+                    ConnectionType.attentive.value,
+                ],
+                [
+                    GOOGLE_ANALYTICS,
+                    MAILCHIMP_TRANSACTIONAL,
+                    ConnectionType.sovrn.value,
+                ],
+            ),
+        ],
+    )
+    def test_get_connection_types_action_type_filter(
+        self,
+        action_types,
+        assert_in_data,
+        assert_not_in_data,
+        connection_type_objects,
+        generate_auth_header,
+        api_client,
+        url,
+        url_with_params,
+    ):
+        the_url = url
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        if action_types:
+            the_url = url_with_params.format(
+                consent=ActionType.consent in action_types,
+                access=ActionType.access in action_types,
+                erasure=ActionType.erasure in action_types,
+            )
+        resp = api_client.get(the_url, headers=auth_header)
+        data = resp.json()["items"]
+        assert resp.status_code == 200
+
+        for connection_type in assert_in_data:
+            obj = connection_type_objects[connection_type]
+            assert obj in data
+
+        for connection_type in assert_not_in_data:
+            obj = connection_type_objects[connection_type]
+            assert obj not in data
+
+        # now run another request, this time omitting non-specified filter params
+        # rather than setting them to false explicitly. we should get identical results.
+        if action_types:
+            the_url = url
+            if ActionType.consent in action_types:
+                the_url += "consent=true&"
+            if ActionType.access in action_types:
+                the_url += "access=true&"
+            if ActionType.erasure in action_types:
+                the_url += "erasure=true&"
+
+        resp = api_client.get(the_url, headers=auth_header)
+        data = resp.json()["items"]
+        assert resp.status_code == 200
+
+        for connection_type in assert_in_data:
+            obj = connection_type_objects[connection_type]
+            assert obj in data
+
+        for connection_type in assert_not_in_data:
+            obj = connection_type_objects[connection_type]
+            assert obj not in data
 
 
 class TestGetConnectionSecretSchema:
@@ -364,6 +802,142 @@ class TestGetConnectionSecretSchema:
             == "No connection type found with name 'connection_type_we_do_not_support'."
         )
 
+    def test_get_connection_secret_schema_bigquery(
+        self, api_client: TestClient, generate_auth_header, base_url
+    ) -> None:
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(
+            base_url.format(connection_type="bigquery"), headers=auth_header
+        )
+        assert resp.json() == {
+            "title": "BigQuerySchema",
+            "description": "Schema to validate the secrets needed to connect to BigQuery",
+            "type": "object",
+            "properties": {
+                "keyfile_creds": {
+                    "title": "Keyfile Creds",
+                    "description": "The contents of the key file that contains authentication credentials for a service account in GCP.",
+                    "sensitive": True,
+                    "allOf": [{"$ref": "#/definitions/KeyfileCreds"}],
+                },
+                "dataset": {
+                    "title": "BigQuery Dataset",
+                    "description": "The dataset within your BigQuery project that contains the tables you want to access.",
+                    "type": "string",
+                },
+            },
+            "required": ["keyfile_creds", "dataset"],
+            "definitions": {
+                "KeyfileCreds": {
+                    "title": "KeyfileCreds",
+                    "description": "Schema that holds BigQuery keyfile key/vals",
+                    "type": "object",
+                    "properties": {
+                        "type": {"title": "Type", "type": "string"},
+                        "project_id": {"title": "Project ID", "type": "string"},
+                        "private_key_id": {"title": "Private Key ID", "type": "string"},
+                        "private_key": {
+                            "title": "Private Key",
+                            "sensitive": True,
+                            "type": "string",
+                        },
+                        "client_email": {
+                            "title": "Client Email",
+                            "type": "string",
+                            "format": "email",
+                        },
+                        "client_id": {"title": "Client ID", "type": "string"},
+                        "auth_uri": {"title": "Auth URI", "type": "string"},
+                        "token_uri": {"title": "Token URI", "type": "string"},
+                        "auth_provider_x509_cert_url": {
+                            "title": "Auth Provider X509 Cert URL",
+                            "type": "string",
+                        },
+                        "client_x509_cert_url": {
+                            "title": "Client X509 Cert URL",
+                            "type": "string",
+                        },
+                    },
+                    "required": ["project_id"],
+                }
+            },
+        }
+
+    def test_get_connection_secret_schema_dynamodb(
+        self, api_client: TestClient, generate_auth_header, base_url
+    ) -> None:
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(
+            base_url.format(connection_type="dynamodb"), headers=auth_header
+        )
+        assert resp.json() == {
+            "title": "DynamoDBSchema",
+            "description": "Schema to validate the secrets needed to connect to an Amazon DynamoDB cluster",
+            "type": "object",
+            "properties": {
+                "region_name": {
+                    "title": "Region",
+                    "description": "The AWS region where your DynamoDB table is located (ex. us-west-2).",
+                    "type": "string",
+                },
+                "aws_access_key_id": {
+                    "title": "Access Key ID",
+                    "description": "Part of the credentials that provide access to your AWS account.",
+                    "type": "string",
+                },
+                "aws_secret_access_key": {
+                    "title": "Secret Access Key",
+                    "description": "Part of the credentials that provide access to your AWS account.",
+                    "sensitive": True,
+                    "type": "string",
+                },
+            },
+            "required": ["region_name", "aws_access_key_id", "aws_secret_access_key"],
+        }
+
+    def test_get_connection_secret_schema_mariadb(
+        self, api_client: TestClient, generate_auth_header, base_url
+    ) -> None:
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(
+            base_url.format(connection_type="mariadb"), headers=auth_header
+        )
+        assert resp.json() == {
+            "title": "MariaDBSchema",
+            "description": "Schema to validate the secrets needed to connect to a MariaDB Database",
+            "type": "object",
+            "properties": {
+                "host": {
+                    "title": "Host",
+                    "description": "The hostname or IP address of the server where the database is running.",
+                    "type": "string",
+                },
+                "port": {
+                    "default": 3306,
+                    "title": "Port",
+                    "description": "The network port number on which the server is listening for incoming connections (default: 3306).",
+                    "type": "integer",
+                },
+                "username": {
+                    "title": "Username",
+                    "description": "The user account used to authenticate and access the database.",
+                    "type": "string",
+                },
+                "password": {
+                    "title": "Password",
+                    "description": "The password used to authenticate and access the database.",
+                    "sensitive": True,
+                    "type": "string",
+                },
+                "dbname": {
+                    "title": "Database",
+                    "description": "The name of the specific database within the database server that you want to connect to.",
+                    "type": "string",
+                },
+            },
+            "required": ["host", "dbname"],
+        }
+
     def test_get_connection_secret_schema_mongodb(
         self, api_client: TestClient, generate_auth_header, base_url
     ) -> None:
@@ -376,14 +950,294 @@ class TestGetConnectionSecretSchema:
             "description": "Schema to validate the secrets needed to connect to a MongoDB Database",
             "type": "object",
             "properties": {
-                "url": {"title": "Url", "type": "string"},
-                "username": {"title": "Username", "type": "string"},
-                "password": {"title": "Password", "type": "string"},
-                "host": {"title": "Host", "type": "string"},
-                "port": {"title": "Port", "type": "integer"},
-                "defaultauthdb": {"title": "Defaultauthdb", "type": "string"},
+                "host": {
+                    "title": "Host",
+                    "description": "The hostname or IP address of the server where the database is running.",
+                    "type": "string",
+                },
+                "port": {
+                    "default": 27017,
+                    "title": "Port",
+                    "description": "The network port number on which the server is listening for incoming connections (default: 27017).",
+                    "type": "integer",
+                },
+                "username": {
+                    "title": "Username",
+                    "description": "The user account used to authenticate and access the database.",
+                    "type": "string",
+                },
+                "password": {
+                    "title": "Password",
+                    "description": "The password used to authenticate and access the database.",
+                    "sensitive": True,
+                    "type": "string",
+                },
+                "defaultauthdb": {
+                    "title": "Default Auth DB",
+                    "description": "Used to specify the default authentication database.",
+                    "type": "string",
+                },
             },
-            "additionalProperties": False,
+            "required": ["host", "username", "password", "defaultauthdb"],
+        }
+
+    def test_get_connection_secret_schema_mssql(
+        self, api_client: TestClient, generate_auth_header, base_url
+    ) -> None:
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(
+            base_url.format(connection_type="mssql"), headers=auth_header
+        )
+        assert resp.json() == {
+            "title": "MicrosoftSQLServerSchema",
+            "description": "Schema to validate the secrets needed to connect to a MS SQL Database\n\nconnection string takes the format:\nmssql+pymssql://[username]:[password]@[host]:[port]/[dbname]",
+            "type": "object",
+            "properties": {
+                "host": {
+                    "title": "Host",
+                    "description": "The hostname or IP address of the server where the database is running.",
+                    "type": "string",
+                },
+                "port": {
+                    "default": 1433,
+                    "title": "Port",
+                    "description": "The network port number on which the server is listening for incoming connections (default: 1433).",
+                    "type": "integer",
+                },
+                "username": {
+                    "title": "Username",
+                    "description": "The user account used to authenticate and access the database.",
+                    "type": "string",
+                },
+                "password": {
+                    "title": "Password",
+                    "description": "The password used to authenticate and access the database.",
+                    "sensitive": True,
+                    "type": "string",
+                },
+                "dbname": {
+                    "title": "Database",
+                    "description": "The name of the specific database within the database server that you want to connect to.",
+                    "type": "string",
+                },
+            },
+            "required": ["host", "username", "password", "dbname"],
+        }
+
+    def test_get_connection_secret_schema_mysql(
+        self, api_client: TestClient, generate_auth_header, base_url
+    ) -> None:
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(
+            base_url.format(connection_type="mysql"), headers=auth_header
+        )
+        assert resp.json() == {
+            "title": "MySQLSchema",
+            "description": "Schema to validate the secrets needed to connect to a MySQL Database",
+            "type": "object",
+            "properties": {
+                "host": {
+                    "title": "Host",
+                    "description": "The hostname or IP address of the server where the database is running.",
+                    "type": "string",
+                },
+                "port": {
+                    "default": 3306,
+                    "title": "Port",
+                    "description": "The network port number on which the server is listening for incoming connections (default: 3306).",
+                    "type": "integer",
+                },
+                "username": {
+                    "title": "Username",
+                    "description": "The user account used to authenticate and access the database.",
+                    "type": "string",
+                },
+                "password": {
+                    "title": "Password",
+                    "description": "The password used to authenticate and access the database.",
+                    "sensitive": True,
+                    "type": "string",
+                },
+                "dbname": {
+                    "title": "Database",
+                    "description": "The name of the specific database within the database server that you want to connect to.",
+                    "type": "string",
+                },
+                "ssh_required": {
+                    "title": "SSH required",
+                    "description": "Indicates whether an SSH tunnel is required for the connection. Enable this option if your MySQL server is behind a firewall and requires SSH tunneling for remote connections.",
+                    "default": False,
+                    "type": "boolean",
+                },
+            },
+            "required": ["host", "dbname"],
+        }
+
+    def test_get_connection_secret_schema_postgres(
+        self, api_client: TestClient, generate_auth_header, base_url
+    ) -> None:
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(
+            base_url.format(connection_type="postgres"), headers=auth_header
+        )
+        assert resp.json() == {
+            "title": "PostgreSQLSchema",
+            "description": "Schema to validate the secrets needed to connect to a PostgreSQL Database",
+            "type": "object",
+            "properties": {
+                "host": {
+                    "title": "Host",
+                    "description": "The hostname or IP address of the server where the database is running.",
+                    "type": "string",
+                },
+                "port": {
+                    "default": 5432,
+                    "title": "Port",
+                    "description": "The network port number on which the server is listening for incoming connections (default: 5432).",
+                    "type": "integer",
+                },
+                "username": {
+                    "title": "Username",
+                    "description": "The user account used to authenticate and access the database.",
+                    "type": "string",
+                },
+                "password": {
+                    "title": "Password",
+                    "description": "The password used to authenticate and access the database.",
+                    "sensitive": True,
+                    "type": "string",
+                },
+                "dbname": {
+                    "title": "Database",
+                    "description": "The name of the specific database within the database server that you want to connect to.",
+                    "type": "string",
+                },
+                "db_schema": {
+                    "title": "Schema",
+                    "description": "The default schema to be used for the database connection (defaults to public).",
+                    "type": "string",
+                },
+                "ssh_required": {
+                    "title": "SSH required",
+                    "description": "Indicates whether an SSH tunnel is required for the connection. Enable this option if your PostgreSQL server is behind a firewall and requires SSH tunneling for remote connections.",
+                    "default": False,
+                    "type": "boolean",
+                },
+            },
+            "required": ["host", "dbname"],
+        }
+
+    def test_get_connection_secret_schema_redshift(
+        self, api_client: TestClient, generate_auth_header, base_url
+    ) -> None:
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(
+            base_url.format(connection_type="redshift"), headers=auth_header
+        )
+        assert resp.json() == {
+            "title": "RedshiftSchema",
+            "description": "Schema to validate the secrets needed to connect to an Amazon Redshift cluster",
+            "type": "object",
+            "properties": {
+                "host": {
+                    "title": "Host",
+                    "description": "The hostname or IP address of the server where the database is running.",
+                    "type": "string",
+                },
+                "port": {
+                    "default": 5439,
+                    "title": "Port",
+                    "description": "The network port number on which the server is listening for incoming connections (default: 5439).",
+                    "type": "integer",
+                },
+                "user": {
+                    "title": "Username",
+                    "description": "The user account used to authenticate and access the database.",
+                    "type": "string",
+                },
+                "password": {
+                    "title": "Password",
+                    "description": "The password used to authenticate and access the database.",
+                    "sensitive": True,
+                    "type": "string",
+                },
+                "database": {
+                    "title": "Database",
+                    "description": "The name of the specific database within the database server that you want to connect to.",
+                    "type": "string",
+                },
+                "db_schema": {
+                    "title": "Schema",
+                    "description": "The default schema to be used for the database connection (defaults to public).",
+                    "type": "string",
+                },
+                "ssh_required": {
+                    "title": "SSH required",
+                    "description": "Indicates whether an SSH tunnel is required for the connection. Enable this option if your Redshift database is behind a firewall and requires SSH tunneling for remote connections.",
+                    "default": False,
+                    "type": "boolean",
+                },
+            },
+            "required": ["host", "user", "password", "database"],
+        }
+
+    def test_get_connection_secret_schema_snowflake(
+        self, api_client: TestClient, generate_auth_header, base_url
+    ) -> None:
+        auth_header = generate_auth_header(scopes=[CONNECTION_TYPE_READ])
+        resp = api_client.get(
+            base_url.format(connection_type="snowflake"), headers=auth_header
+        )
+        assert resp.json() == {
+            "title": "SnowflakeSchema",
+            "description": "Schema to validate the secrets needed to connect to Snowflake",
+            "type": "object",
+            "properties": {
+                "account_identifier": {
+                    "title": "Account Name",
+                    "description": "The unique identifier for your Snowflake account.",
+                    "type": "string",
+                },
+                "user_login_name": {
+                    "title": "Username",
+                    "description": "The user account used to authenticate and access the database.",
+                    "type": "string",
+                },
+                "password": {
+                    "title": "Password",
+                    "description": "The password used to authenticate and access the database.",
+                    "sensitive": True,
+                    "type": "string",
+                },
+                "warehouse_name": {
+                    "title": "Warehouse",
+                    "description": "The name of the Snowflake warehouse where your queries will be executed.",
+                    "type": "string",
+                },
+                "database_name": {
+                    "title": "Database",
+                    "description": "The name of the Snowflake database you want to connect to.",
+                    "type": "string",
+                },
+                "schema_name": {
+                    "title": "Schema",
+                    "description": "The name of the Snowflake schema within the selected database.",
+                    "type": "string",
+                },
+                "role_name": {
+                    "title": "Role",
+                    "description": "The Snowflake role to assume for the session, if different than Username.",
+                    "type": "string",
+                },
+            },
+            "required": [
+                "account_identifier",
+                "user_login_name",
+                "password",
+                "warehouse_name",
+                "database_name",
+                "schema_name",
+            ],
         }
 
     def test_get_connection_secret_schema_hubspot(
@@ -399,15 +1253,21 @@ class TestGetConnectionSecretSchema:
             "description": "Hubspot secrets schema",
             "type": "object",
             "properties": {
-                "private_app_token": {"title": "Private App Token", "type": "string"},
                 "domain": {
                     "title": "Domain",
+                    "description": "Your HubSpot domain",
                     "default": "api.hubapi.com",
+                    "sensitive": False,
+                    "type": "string",
+                },
+                "private_app_token": {
+                    "title": "Private app token",
+                    "description": "Your HubSpot Private Apps access token",
+                    "sensitive": True,
                     "type": "string",
                 },
             },
             "required": ["private_app_token"],
-            "additionalProperties": False,
         }
 
     def test_get_connection_secrets_manual_webhook(
@@ -522,10 +1382,11 @@ class TestInstantiateConnectionFromTemplate:
             "msg": "field required",
             "type": "value_error.missing",
         }
+        # extra values should be permitted, but the system should return an error if there are missing fields.
         assert resp.json()["detail"][1] == {
-            "loc": ["bad_mailchimp_secret_key"],
-            "msg": "extra fields not permitted",
-            "type": "value_error.extra",
+            "loc": ["__root__"],
+            "msg": "mailchimp_schema must be supplied all of: [domain, username, api_key].",
+            "type": "value_error",
         }
 
         connection_config = ConnectionConfig.filter(
@@ -579,18 +1440,16 @@ class TestInstantiateConnectionFromTemplate:
             headers=auth_header,
             json=request_body,
         )
-        assert resp.status_code == 400
-        assert (
-            f"Name {connection_config.name} already exists in ConnectionConfig"
-            in resp.json()["detail"]
-        )
+        # names don't have to be unique
+        assert resp.status_code == 200
 
     def test_create_connection_from_template_without_supplying_connection_key(
         self, db, generate_auth_header, api_client, base_url
     ):
         auth_header = generate_auth_header(scopes=[SAAS_CONNECTION_INSTANTIATE])
+        instance_key = "secondary_mailchimp_instance"
         request_body = {
-            "instance_key": "secondary_mailchimp_instance",
+            "instance_key": instance_key,
             "secrets": {
                 "domain": "test_mailchimp_domain",
                 "username": "test_mailchimp_username",
@@ -617,7 +1476,7 @@ class TestInstantiateConnectionFromTemplate:
         assert connection_config is not None
         assert dataset_config is not None
 
-        assert connection_config.key == "mailchimp_connector"
+        assert connection_config.key == instance_key
         dataset_config.delete(db)
         connection_config.delete(db)
 
@@ -646,7 +1505,7 @@ class TestInstantiateConnectionFromTemplate:
         }
 
     @mock.patch(
-        "fides.api.ops.api.v1.endpoints.saas_config_endpoints.upsert_dataset_config_from_template"
+        "fides.api.api.v1.endpoints.saas_config_endpoints.upsert_dataset_config_from_template"
     )
     def test_dataset_config_saving_fails(
         self, mock_create_dataset, db, generate_auth_header, api_client, base_url
@@ -724,7 +1583,7 @@ class TestInstantiateConnectionFromTemplate:
         connection_data = resp.json()["connection"]
         assert connection_data["key"] == "mailchimp_connection_config"
         assert connection_data["name"] == "Mailchimp Connector"
-        assert "secrets" not in connection_data
+        assert connection_data["secrets"]["api_key"] == "**********"
 
         dataset_data = resp.json()["dataset"]
         assert dataset_data["fides_key"] == "secondary_mailchimp_instance"

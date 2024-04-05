@@ -3,16 +3,15 @@ import { useCallback, useMemo } from "react";
 import { useFeatures } from "~/features/common/features";
 import { useAlert } from "~/features/common/hooks";
 import {
-  useDeleteCustomFieldMutation,
+  useBulkUpdateCustomFieldsMutation,
   useGetAllAllowListQuery,
   useGetCustomFieldDefinitionsByResourceTypeQuery,
   useGetCustomFieldsForResourceQuery,
-  useUpsertCustomFieldMutation,
 } from "~/features/plus/plus.slice";
-import { ResourceTypes } from "~/types/api";
+import { CustomFieldWithId, ResourceTypes } from "~/types/api";
 
 import { filterWithId } from "./helpers";
-import { CustomFieldsFormValues } from "./types";
+import { CustomFieldsFormValues, CustomFieldValues } from "./types";
 
 type UseCustomFieldsOptions = {
   resourceFidesKey?: string;
@@ -23,9 +22,8 @@ export const useCustomFields = ({
   resourceFidesKey,
   resourceType,
 }: UseCustomFieldsOptions) => {
-  const { errorAlert, successAlert } = useAlert();
-  const { flags, plus } = useFeatures();
-  const isEnabled = flags.customFields && plus;
+  const { errorAlert } = useAlert();
+  const { plus: isEnabled } = useFeatures();
 
   // This keeps track of the fides key that was initially passed in. If that key started out blank,
   // then we know the API call will just 404.
@@ -39,27 +37,22 @@ export const useCustomFields = ({
     useGetCustomFieldDefinitionsByResourceTypeQuery(resourceType, {
       skip: !isEnabled,
     });
-  const customFieldsQuery = useGetCustomFieldsForResourceQuery(
-    resourceFidesKey ?? "",
-    {
-      skip: queryFidesKey !== "" && !(isEnabled && queryFidesKey),
-    }
-  );
+  const {
+    data,
+    isLoading: isCustomFieldIsLoading,
+    error,
+    isError,
+  } = useGetCustomFieldsForResourceQuery(resourceFidesKey ?? "", {
+    skip: queryFidesKey !== "" && !(isEnabled && queryFidesKey),
+  });
 
-  // The `fixedCacheKey` options will ensure that components referencing the same resource will
-  // share mutation info. That won't be too useful, though, because `upsertCustomField` can issue
-  // multiple requests: one for each field associated with the resource.
-  const [upsertCustomFieldMutationTrigger, upsertCustomFieldMutationResult] =
-    useUpsertCustomFieldMutation({ fixedCacheKey: resourceFidesKey });
-  const [deleteCustomFieldMutationTrigger, deleteCustomFieldMutationResult] =
-    useDeleteCustomFieldMutation({ fixedCacheKey: resourceFidesKey });
+  const [bulkUpdateCustomFieldsMutationTrigger] =
+    useBulkUpdateCustomFieldsMutation();
 
   const isLoading =
     allAllowListQuery.isLoading ||
     customFieldDefinitionsQuery.isLoading ||
-    customFieldsQuery.isLoading ||
-    upsertCustomFieldMutationResult.isLoading ||
-    deleteCustomFieldMutationResult.isLoading;
+    isCustomFieldIsLoading;
 
   const idToAllowListWithOptions = useMemo(
     () =>
@@ -78,27 +71,30 @@ export const useCustomFields = ({
     [allAllowListQuery.data]
   );
 
+  const activeCustomFieldDefinition = useMemo(
+    () => customFieldDefinitionsQuery.data?.filter((cfd) => cfd.active),
+    [customFieldDefinitionsQuery.data]
+  );
+
   const idToCustomFieldDefinition = useMemo(
     () =>
       new Map(
-        filterWithId(customFieldDefinitionsQuery.data).map((cfd) => [
-          cfd.id,
-          cfd,
-        ])
+        filterWithId(activeCustomFieldDefinition).map((cfd) => [cfd.id, cfd])
       ),
-    [customFieldDefinitionsQuery]
+    [activeCustomFieldDefinition]
   );
 
-  const definitionIdToCustomField = useMemo(
-    () =>
-      new Map(
-        filterWithId(customFieldsQuery.data).map((fd) => [
-          fd.custom_field_definition_id,
-          fd,
-        ])
-      ),
-    [customFieldsQuery]
-  );
+  const definitionIdToCustomField: Map<string, CustomFieldWithId> =
+    useMemo(() => {
+      // @ts-ignore
+      if (isError && error?.status === 404) {
+        return new Map();
+      }
+      const newMap = new Map(
+        filterWithId(data).map((fd) => [fd.custom_field_definition_id, fd])
+      );
+      return newMap;
+    }, [data, isError, error]);
 
   const sortedCustomFieldDefinitionIds = useMemo(() => {
     const ids = [...idToCustomFieldDefinition.keys()];
@@ -107,60 +103,91 @@ export const useCustomFields = ({
   }, [idToCustomFieldDefinition]);
 
   /**
+   * Transformed version of definitionIdToCustomField to be easy
+   * to pass into Formik
+   */
+  const customFieldValues = useMemo(() => {
+    const values: CustomFieldValues = {};
+    if (activeCustomFieldDefinition && definitionIdToCustomField) {
+      activeCustomFieldDefinition.forEach((value) => {
+        const customField = definitionIdToCustomField.get(value.id || "");
+        if (customField) {
+          if (!!value.allow_list_id && value.field_type === "string[]") {
+            values[customField.custom_field_definition_id] = customField.value;
+          } else {
+            values[customField.custom_field_definition_id] =
+              customField.value.toString();
+          }
+        }
+      });
+    }
+    return values;
+  }, [activeCustomFieldDefinition, definitionIdToCustomField]);
+
+  /**
    * Issue a batch of upsert and delete requests that will sync the form selections to the
    * backend.
    */
   const upsertCustomFields = useCallback(
     async (formValues: CustomFieldsFormValues) => {
-      // When creating an resource, the fides key may have initially been blank. But by the time the
-      // form is submitted it must not be blank (not undefined, not an empty string).
-      const fidesKey = formValues.fides_key || resourceFidesKey;
+      if (!isEnabled) {
+        return;
+      }
+
+      // When creating a resource, the fides key may have initially been blank.
+      // But by the time the form is submitted it must not be blank (not undefined, not an empty string).
+      const fidesKey =
+        "fides_key" in formValues && formValues.fides_key !== ""
+          ? formValues.fides_key
+          : resourceFidesKey;
+
       if (!fidesKey) {
         return;
       }
 
-      const { definitionIdToCustomFieldValue } = formValues;
+      const { customFieldValues: customFieldValuesFromForm } = formValues;
 
       // This will be undefined if the form never rendered a `CustomFieldList` that would assign
       // form values.
-      if (!definitionIdToCustomFieldValue) {
+      if (
+        !customFieldValuesFromForm ||
+        Object.keys(customFieldValuesFromForm).length === 0
+      ) {
         return;
       }
 
+      const upsertList: Array<CustomFieldWithId> = [];
+      const deleteList: Array<string> = [];
+
+      sortedCustomFieldDefinitionIds.forEach((definitionId) => {
+        const customField = definitionIdToCustomField.get(definitionId);
+        const value = customFieldValuesFromForm[definitionId];
+
+        if (
+          value === undefined ||
+          value === "" ||
+          (Array.isArray(value) && value.length === 0)
+        ) {
+          if (customField?.id) {
+            deleteList.push(customField.id);
+          }
+        } else {
+          upsertList.push({
+            custom_field_definition_id: definitionId,
+            resource_id: fidesKey,
+            id: customField?.id,
+            value,
+          });
+        }
+      });
+
       try {
-        // This would be a lot simpler (and more efficient) if the API had an endpoint for updating
-        // all the metadata associated with a field, including deleting options that weren't passed.
-        await Promise.allSettled(
-          sortedCustomFieldDefinitionIds.map((definitionId) => {
-            const customField = definitionIdToCustomField.get(definitionId);
-            const value = definitionIdToCustomFieldValue[definitionId];
-
-            if (
-              value === undefined ||
-              value === "" ||
-              (Array.isArray(value) && value.length === 0)
-            ) {
-              if (!customField?.id) {
-                return undefined;
-              }
-
-              return deleteCustomFieldMutationTrigger(customField);
-            }
-
-            const body = {
-              custom_field_definition_id: definitionId,
-              resource_id: fidesKey,
-              id: customField?.id,
-              value,
-            };
-
-            return upsertCustomFieldMutationTrigger(body);
-          })
-        );
-
-        successAlert(
-          `Custom field(s) successfully saved and added to this ${resourceType} form.`
-        );
+        await bulkUpdateCustomFieldsMutationTrigger({
+          resource_type: resourceType,
+          resource_id: fidesKey,
+          upsert: upsertList,
+          delete: deleteList,
+        });
       } catch (e) {
         errorAlert(
           `One or more custom fields have failed to save, please try again.`
@@ -170,18 +197,18 @@ export const useCustomFields = ({
       }
     },
     [
+      isEnabled,
       definitionIdToCustomField,
-      deleteCustomFieldMutationTrigger,
       errorAlert,
       resourceFidesKey,
-      resourceType,
       sortedCustomFieldDefinitionIds,
-      successAlert,
-      upsertCustomFieldMutationTrigger,
+      bulkUpdateCustomFieldsMutationTrigger,
+      resourceType,
     ]
   );
 
   return {
+    customFieldValues,
     definitionIdToCustomField,
     idToAllowListWithOptions,
     idToCustomFieldDefinition,

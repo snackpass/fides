@@ -24,21 +24,6 @@ const DEFAULT_VALUES: EmailConnectorParametersFormFields = {
   name: "",
 };
 
-/**
- * We do not support advanced settings in the UI yet, but the backend requires at least
- * a payload that looks like it. We stuff one into handleSubmit for now
- * See fides#2458
- */
-const STUBBED_ADVANCED_SETTINGS = {
-  advanced_settings: {
-    identity_types: {
-      email: false,
-      phone_number: false,
-      cookie_ids: [],
-    },
-  },
-};
-
 export const ConnectorParameters: React.FC<ConnectorParametersProps> = ({
   data,
   onConnectionCreated,
@@ -51,16 +36,16 @@ export const ConnectorParameters: React.FC<ConnectorParametersProps> = ({
   } = useDatabaseConnector({ onConnectionCreated, data });
 
   const handleSubmit = (values: EmailConnectorParametersFormFields) => {
-    onSubmit({ ...values, ...STUBBED_ADVANCED_SETTINGS });
+    onSubmit(values);
   };
 
   return (
     <>
       <Box color="gray.700" fontSize="14px" h="80px">
-        Configure your {connectionOption!.human_readable} email connector by
-        providing the connector name, description and a test email address. Once
-        you have saved the details, you can click test email to check the format
-        of the email.
+        Configure your {connectionOption!.human_readable} connector by providing
+        the connector name, description and a test email address. Once you have
+        saved the details, you can click test email to check the format of the
+        email.
       </Box>
       <ConnectorParametersForm
         data={data}

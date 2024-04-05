@@ -6,10 +6,9 @@ describe("Taxonomy management page", () => {
     stubTaxonomyEntities();
   });
 
-  // TODO: Update Cypress test to reflect the nav bar 2.0
-  it.skip("Can navigate to the taxonomy page", () => {
+  it("Can navigate to the taxonomy page", () => {
     cy.visit("/");
-    cy.getByTestId("nav-link-Taxonomy").click();
+    cy.getByTestId("Taxonomy-nav-link").click();
     cy.getByTestId("taxonomy-tabs");
     cy.getByTestId("tab-Data Categories");
     cy.getByTestId("tab-Data Uses");
@@ -30,15 +29,18 @@ describe("Taxonomy management page", () => {
     });
 
     it("Can open up accordion to see taxonomy entities", () => {
-      // should only see the 3 root level taxonomy
+      // should only see the 2 root level taxonomy
       cy.getByTestId("accordion-item-System Data").should("be.visible");
       cy.getByTestId("accordion-item-User Data").should("be.visible");
-      cy.getByTestId("accordion-item-Payment Data").should("not.be.visible");
 
       // clicking should open up accordions to render more items visible
       cy.getByTestId("accordion-item-User Data").click();
-      cy.getByTestId("accordion-item-Credentials").should("be.visible");
-      cy.getByTestId("accordion-item-Credentials").click();
+      cy.getByTestId("accordion-item-Authorization Information").should(
+        "be.visible"
+      );
+      cy.getByTestId("accordion-item-Authorization Information").click({
+        force: true,
+      });
       cy.getByTestId("item-Password").should("be.visible");
     });
 
@@ -74,6 +76,7 @@ describe("Taxonomy management page", () => {
           name: "name",
           description: "description",
           parent_key: undefined,
+          version_added: "2.0.0",
         },
       };
       cy.intercept("PUT", "/api/v1/data_category*", taxonomyPayload).as(
@@ -84,9 +87,6 @@ describe("Taxonomy management page", () => {
       );
       cy.intercept("PUT", "/api/v1/data_subject*", taxonomyPayload).as(
         "putDataSubject"
-      );
-      cy.intercept("PUT", "/api/v1/data_qualifier*", taxonomyPayload).as(
-        "putDataQualifier"
       );
     });
 
@@ -103,9 +103,9 @@ describe("Taxonomy management page", () => {
         },
         {
           tab: "Data Uses",
-          name: "Improve the capability",
-          key: "improve",
-          description: "Improve the product, service, application or system.",
+          name: "Functional",
+          key: "functional",
+          description: "Used for specific, necessary, and legitimate purposes",
           parentKey: "",
           isParent: true,
           request: "@putDataUse",
@@ -161,16 +161,23 @@ describe("Taxonomy management page", () => {
     it("Can render the parent field", () => {
       cy.getByTestId("tab-Data Categories").click();
       cy.getByTestId(`accordion-item-User Data`).click();
-      cy.getByTestId("accordion-item-Credentials").click();
+      cy.getByTestId("accordion-item-Authorization Information").click({
+        force: true,
+      });
       cy.getByTestId("item-Password").trigger("mouseover");
       cy.getByTestId("edit-btn").click();
       cy.getByTestId("input-parent_key").should(
         "have.value",
-        "user.credentials"
+        "user.authorization"
       );
     });
 
-    it("Can render an extended form for Data Uses", () => {
+    /*
+     * These fields are deprecated.
+     * This test is being kept so it can be updated
+     * with new fields in the future
+     */
+    it.skip("Can render an extended form for Data Uses", () => {
       cy.getByTestId("tab-Data Uses").click();
 
       // check an entity that has optional fields filled in ("provides")
@@ -178,36 +185,6 @@ describe("Taxonomy management page", () => {
         "mouseover"
       );
       cy.getByTestId("edit-btn").click();
-      cy.getByTestId("input-legal_basis").should(
-        "contain",
-        "Legitimate Interests"
-      );
-      cy.getByTestId("input-special_category").should(
-        "contain",
-        "Vital Interests"
-      );
-      cy.getByTestId("input-recipients").should("contain", "marketing team");
-      cy.getByTestId("input-recipients").should("contain", "dog shelter");
-      cy.getByTestId("input-legitimate_interest").within(() => {
-        cy.getByTestId("option-false").should("have.attr", "data-checked");
-        cy.getByTestId("option-true").click();
-        cy.getByTestId("option-true").should("have.attr", "data-checked");
-        cy.getByTestId("option-false").should("not.have.attr", "data-checked");
-      });
-
-      cy.getByTestId("input-legitimate_interest_impact_assessment").should(
-        "have.value",
-        "https://example.org/legitimate_interest_assessment"
-      );
-
-      cy.getByTestId("input-legitimate_interest_impact_assessment")
-        .clear()
-        .type("foo");
-      // Test clearable single-select.
-      cy.getByTestId("input-legal_basis").within(() => {
-        cy.get('[aria-label="Clear selected options"]').click();
-      });
-      cy.getByTestId("input-special_category").click().type("{backspace}{esc}");
       // trigger a PUT
       cy.getByTestId("submit-btn").click();
       cy.wait("@putDataUse").then((interception) => {
@@ -218,9 +195,6 @@ describe("Taxonomy management page", () => {
           description:
             "Provide, give, or make available the product, service, application or system.",
           is_default: true,
-          recipients: ["marketing team", "dog shelter"],
-          legitimate_interest: true,
-          legitimate_interest_impact_assessment: "foo",
         };
         expect(body).to.eql(expected);
       });
@@ -230,12 +204,6 @@ describe("Taxonomy management page", () => {
         "mouseover"
       );
       cy.getByTestId("edit-btn").click();
-      cy.getByTestId("input-legal_basis").should("contain", "Select...");
-      cy.getByTestId("input-special_category").should("contain", "Select...");
-      cy.getByTestId("input-recipients").should("contain", "Select...");
-      cy.getByTestId("input-legitimate_interest_impact_assessment").should(
-        "not.exist"
-      );
     });
 
     it("Can render an extended form for Data Subjects", () => {
@@ -257,7 +225,9 @@ describe("Taxonomy management page", () => {
       cy.getByTestId("input-strategy").should("contain", "INCLUDE");
       cy.getByTestId("input-automatic_decisions_or_profiling").within(() => {
         cy.getByTestId("option-true").should("have.attr", "data-checked");
-        cy.getByTestId("option-false").click();
+        // For some reason Cypress can accidentally click the dropdown selector above,
+        // so we force click the radio
+        cy.getByTestId("option-false").click({ force: true });
         cy.getByTestId("option-false").should("have.attr", "data-checked");
         cy.getByTestId("option-true").should("not.have.attr", "data-checked");
       });
@@ -278,6 +248,7 @@ describe("Taxonomy management page", () => {
             values: rightValues,
             strategy: "INCLUDE",
           },
+          version_added: "2.0.0",
         };
         expect(body).to.eql(expected);
       });
@@ -331,9 +302,6 @@ describe("Taxonomy management page", () => {
       );
       cy.intercept("POST", "/api/v1/data_subject*", taxonomyPayload).as(
         "postDataSubject"
-      );
-      cy.intercept("POST", "/api/v1/data_qualifier*", taxonomyPayload).as(
-        "postDataQualifier"
       );
     });
 
@@ -459,9 +427,6 @@ describe("Taxonomy management page", () => {
       cy.intercept("DELETE", "/api/v1/data_subject/*", taxonomyPayload).as(
         "deleteDataSubject"
       );
-      cy.intercept("DELETE", "/api/v1/data_qualifier/*", taxonomyPayload).as(
-        "deleteDataQualifier"
-      );
     });
 
     it("Only renders delete button on custom fields", () => {
@@ -470,7 +435,7 @@ describe("Taxonomy management page", () => {
       cy.getByTestId("accordion-item-User Data").trigger("mouseover");
       cy.getByTestId("delete-btn").should("not.exist");
       cy.getByTestId("accordion-item-User Data").click();
-      cy.getByTestId("item-Biometric Data").trigger("mouseover");
+      cy.getByTestId("item-Job Title").trigger("mouseover");
       cy.getByTestId("delete-btn").should("not.exist");
 
       // now try custom fields

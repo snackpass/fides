@@ -1,17 +1,25 @@
 saas_config:
   fides_key: <instance_fides_key>
-  name: Google Analytics 4 (GA4) SaaS Config
+  name: Google Analytics 4
   type: google_analytics
   description: A schema representing the Google Analytics 4 (GA4) connector for Fides
-  version: 0.0.1
+  user_guide: https://docs.ethyca.com/user-guides/integrations/saas-integrations/google-analytics
+  version: 0.0.3
 
   connector_params:
-
     - name: client_id
+      label: Client ID
+      description: The OAuth 2.0 client ID for your application.
     - name: client_secret
+      sensitive: True
+      label: Client secret
+      description: The OAuth 2.0 client secret
     - name: redirect_uri
+      label: Redirect URL
+      description: The Fides URL to which users will be redirected upon successful authentication
     - name: property_id
-      description: Property ID of a GA4 Property
+      label: Property ID
+      description: Your GA4 Property ID
 
   client_config:
     protocol: https

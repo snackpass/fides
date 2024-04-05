@@ -1,7 +1,7 @@
 import pytest
 
-from fides.api.ops.common_exceptions import FidesopsException
-from fides.api.ops.graph.config import (
+from fides.api.common_exceptions import FidesopsException
+from fides.api.graph.config import (
     Collection,
     FieldAddress,
     FieldPath,
@@ -9,9 +9,10 @@ from fides.api.ops.graph.config import (
     ObjectField,
     ScalarField,
 )
-from fides.api.ops.util.saas_util import (
+from fides.api.util.saas_util import (
     assign_placeholders,
     merge_datasets,
+    replace_version,
     unflatten_dict,
 )
 
@@ -327,42 +328,267 @@ class TestAssignPlaceholders:
             == "|leaveithere|"
         )
 
+    def test_json_string_with_mandatory_placeholder(self):
+        json_str = '{"name": "<name>", "age": <age>}'
+        assert (
+            assign_placeholders(json_str, {"name": "John", "age": 30})
+            == '{"name": "John", "age": 30}'
+        )
 
-def test_unflatten_dict():
-    # empty dictionary
-    assert unflatten_dict({}) == {}
+    def test_json_string_with_missing_mandatory_placeholder(self):
+        json_str = '{"name": "<name>", "age": <age>}'
+        assert assign_placeholders(json_str, {"name": "John"}) is None
 
-    # empty dictionary value
-    assert unflatten_dict({"A": {}}) == {"A": {}}
+    def test_json_string_with_optional_placeholder(self):
+        json_str = '{"name": "<name>", "address": "<address?>"}'
+        assert (
+            assign_placeholders(json_str, {"name": "John"})
+            == '{"name": "John", "address": null}'
+        )
+        assert (
+            assign_placeholders(json_str, {"name": "John", "address": "123 Main St"})
+            == '{"name": "John", "address": "123 Main St"}'
+        )
 
-    # unflattened dictionary
-    assert unflatten_dict({"A": "1"}) == {"A": "1"}
+    def test_json_string_with_mixed_placeholders(self):
+        json_str = '{"name": "<name>", "age": <age>, "address": "<address?>"}'
+        assert (
+            assign_placeholders(json_str, {"name": "John", "age": 30})
+            == '{"name": "John", "age": 30, "address": null}'
+        )
+        assert (
+            assign_placeholders(
+                json_str, {"name": "John", "age": 30, "address": "123 Main St"}
+            )
+            == '{"name": "John", "age": 30, "address": "123 Main St"}'
+        )
 
-    # same level
-    assert unflatten_dict({"A.B": "1", "A.C": "2"}) == {"A": {"B": "1", "C": "2"}}
+    def test_json_string_with_nested_placeholders(self):
+        json_str = '{"user": {"name": "<name>", "age": <age>, "credentials": {"token": "<token?>", "expiry": "<expiry?>"}}}'
+        params = {
+            "name": "John",
+            "age": 30,
+            "token": "abc123",
+        }
+        assert (
+            assign_placeholders(json_str, params)
+            == '{"user": {"name": "John", "age": 30, "credentials": {"token": "abc123", "expiry": null}}}'
+        )
 
-    # mixed levels
-    assert unflatten_dict({"A": "1", "B.C": "2", "B.D": "3",}) == {
-        "A": "1",
-        "B": {"C": "2", "D": "3"},
-    }
+    def test_complex_json_string(self):
+        json_str = '{"users": [{"name": "<name1>"}, {"name": "<name2?>"}], "metadata": {"count": <count>}}'
+        params = {"name1": "John", "count": 2}
+        assert (
+            assign_placeholders(json_str, params)
+            == '{"users": [{"name": "John"}, {"name": null}], "metadata": {"count": 2}}'
+        )
 
-    # long path
-    assert unflatten_dict({"A.B.C.D.E.F.G": "1"}) == {
-        "A": {"B": {"C": {"D": {"E": {"F": {"G": "1"}}}}}}
-    }
+    def test_dot_delimited_placeholder(self):
+        assert (
+            assign_placeholders(
+                '{"user": {"name": "<user.name>"}}', {"user": {"name": "Alice"}}
+            )
+            == '{"user": {"name": "Alice"}}'
+        )
 
-    # incoming values should overwrite existing values
-    assert unflatten_dict({"A.B": 1, "A.B": 2}) == {"A": {"B": 2}}
+    def test_dot_delimited_placeholder_with_int(self):
+        assert (
+            assign_placeholders('{"user": {"age": <user.age>}}', {"user": {"age": 30}})
+            == '{"user": {"age": 30}}'
+        )
 
-    # conflicting types
-    with pytest.raises(FidesopsException):
-        unflatten_dict({"A.B": 1, "A": 2, "A.C": 3})
+    def test_multiple_dot_delimited_placeholders(self):
+        assert (
+            assign_placeholders(
+                '{"user": {"name": "<user.name>", "age": <user.age>}}',
+                {"user": {"name": "Bob", "age": 25}},
+            )
+            == '{"user": {"name": "Bob", "age": 25}}'
+        )
 
-    # data passed in is not completely flattened
-    with pytest.raises(FidesopsException):
-        unflatten_dict({"A.B.C": 1, "A": {"B.D": 2}})
+    def test_optional_dot_delimited_placeholder_present(self):
+        assert (
+            assign_placeholders(
+                '{"user": {"name": "<user.name?>", "age": <user.age>}}',
+                {"user": {"name": "Eve", "age": 28}},
+            )
+            == '{"user": {"name": "Eve", "age": 28}}'
+        )
 
-    # unflatten_dict shouldn't be called with a None separator
-    with pytest.raises(IndexError):
-        unflatten_dict({"": "1"}, separator=None)
+    def test_optional_dot_delimited_placeholder_missing(self):
+        assert (
+            assign_placeholders(
+                '{"user": {"name": "<user.name?>", "age": <user.age>}}',
+                {"user": {"age": 28}},
+            )
+            == '{"user": {"name": null, "age": 28}}'
+        )
+
+    def test_dot_delimited_placeholder_missing(self):
+        assert (
+            assign_placeholders(
+                '{"user": {"name": "<user.name>", "age": <user.age>}}',
+                {"user": {"age": 28}},
+            )
+            == None
+        )
+
+    def test_replacing_with_object_values(self):
+        assert (
+            assign_placeholders(
+                "{<all_object_fields>}",
+                {"all_object_fields": {"age": 28, "name": "Bob"}},
+            )
+            == '{"age": 28, "name": "Bob"}'
+        )
+
+    def test_replacing_with_string_list_values(self):
+        assert (
+            assign_placeholders(
+                '{"subscriber_ids": <subscriber_ids>}',
+                {"subscriber_ids": ["123", "456"]},
+            )
+            == '{"subscriber_ids": ["123", "456"]}'
+        )
+
+    def test_replacing_with_integer_list_values(self):
+        assert (
+            assign_placeholders(
+                '{"account_ids": <account_ids>}',
+                {"account_ids": [123, 456]},
+            )
+            == '{"account_ids": [123, 456]}'
+        )
+
+    def test_replacing_with_empty_list_values(self):
+        assert (
+            assign_placeholders(
+                '{"subscriber_ids": <subscriber_ids>}',
+                {"subscriber_ids": []},
+            )
+            == '{"subscriber_ids": []}'
+        )
+
+
+class TestUnflattenDict:
+    def test_empty_dict(self):
+        assert unflatten_dict({}) == {}
+
+    def test_empty_dict_value(self):
+        assert unflatten_dict({"A": {}}) == {"A": {}}
+
+    def test_unflattened_dict(self):
+        assert unflatten_dict({"A": "1"}) == {"A": "1"}
+
+    def test_same_level(self):
+        assert unflatten_dict({"A.B": "1", "A.C": "2"}) == {"A": {"B": "1", "C": "2"}}
+
+    def test_mixed_levels(self):
+        assert unflatten_dict(
+            {
+                "A": "1",
+                "B.C": "2",
+                "B.D": "3",
+            }
+        ) == {
+            "A": "1",
+            "B": {"C": "2", "D": "3"},
+        }
+
+    def test_long_path(self):
+        assert unflatten_dict({"A.B.C.D.E.F.G": "1"}) == {
+            "A": {"B": {"C": {"D": {"E": {"F": {"G": "1"}}}}}}
+        }
+
+    def test_single_item_array(self):
+        assert unflatten_dict({"A.0.B": "C"}) == {"A": [{"B": "C"}]}
+
+    def test_multi_item_array(self):
+        assert unflatten_dict({"A.0.B": "C", "A.1.D": "E"}) == {
+            "A": [{"B": "C"}, {"D": "E"}]
+        }
+
+    def test_multi_value_array(self):
+        assert unflatten_dict(
+            {"A.0.B": "C", "A.0.D": "E", "A.1.F": "G", "A.1.H": "I"}
+        ) == {"A": [{"B": "C", "D": "E"}, {"F": "G", "H": "I"}]}
+
+    def test_array_with_scalar_value(self):
+        assert unflatten_dict({"A.0": "B"}) == {"A": ["B"]}
+
+    def test_array_with_scalar_values(self):
+        assert unflatten_dict({"A.0": "B", "A.1": "C"}) == {"A": ["B", "C"]}
+
+    def test_overwrite_existing_values(self):
+        assert unflatten_dict({"A.B": 1, "A.B": 2}) == {"A": {"B": 2}}
+
+    def test_conflicting_types(self):
+        with pytest.raises(FidesopsException):
+            unflatten_dict({"A.B": 1, "A": 2, "A.C": 3})
+
+    def test_mixed_types_in_array(self):
+        assert unflatten_dict({"A.0": "B", "A.1.C": "D"}) == {"A": ["B", {"C": "D"}]}
+
+    def test_data_not_completely_flattened(self):
+        assert unflatten_dict({"A.B.C": 1, "A": {"B.D": 2}}) == {
+            "A": {"B": {"C": 1, "D": 2}}
+        }
+
+    def test_response_with_object_fields_specified(self):
+        assert unflatten_dict(
+            {
+                "address.email": "2a3aaa22b2ccce15ef7a1e94ee@email.com",
+                "address.name": "MASKED",
+                "metadata": {"age": "24", "place": "Bedrock"},
+                "return_path": "",
+                "substitution_data": {
+                    "favorite_color": "SparkPost Orange",
+                    "job": "Software Engineer",
+                },
+                "tags": ["greeting", "prehistoric", "fred", "flintstone"],
+            }
+        ) == {
+            "address": {
+                "email": "2a3aaa22b2ccce15ef7a1e94ee@email.com",
+                "name": "MASKED",
+            },
+            "metadata": {"age": "24", "place": "Bedrock"},
+            "return_path": "",
+            "substitution_data": {
+                "favorite_color": "SparkPost Orange",
+                "job": "Software Engineer",
+            },
+            "tags": ["greeting", "prehistoric", "fred", "flintstone"],
+        }
+
+    def test_none_separator(self):
+        with pytest.raises(IndexError):
+            unflatten_dict({"": "1"}, separator=None)
+
+
+def test_replace_version():
+    # base case
+    assert (
+        replace_version("saas_config:\n  version: 0.0.1\n  key: example", "0.0.2")
+        == "saas_config:\n  version: 0.0.2\n  key: example"
+    )
+
+    # ignore extra spaces
+    assert (
+        replace_version("saas_config:\n  version:  0.0.1\n  key: example", "0.0.2")
+        == "saas_config:\n  version: 0.0.2\n  key: example"
+    )
+
+    # version not found
+    replace_version(
+        "saas_config:\n  key: example", "1.0.0"
+    ) == "saas_config:\n  key: example"
+
+    # occurrences of *version: in the rest of the config
+    assert (
+        replace_version(
+            "saas_config:\n  version: 0.0.1\n  key: example\n  other_version: 0.0.2",
+            "0.0.3",
+        )
+        == "saas_config:\n  version: 0.0.3\n  key: example\n  other_version: 0.0.2"
+    )

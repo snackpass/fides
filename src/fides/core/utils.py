@@ -1,16 +1,11 @@
-"""Utils to help with API calls."""
 import glob
 import re
-from functools import partial
 from hashlib import sha1
-from json.decoder import JSONDecodeError
 from os import getenv
 from os.path import isfile
 from pathlib import Path
 from typing import Dict, Iterator, List
 
-import click
-import requests
 import sqlalchemy
 import toml
 from fideslang.models import DatasetField, FidesModel
@@ -19,12 +14,10 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from fides.common.utils import echo_red
 from fides.connectors.models import ConnectorAuthFailureException
 
 logger.bind(name="server_api")
-
-echo_red = partial(click.secho, fg="red", bold=True)
-echo_green = partial(click.secho, fg="green", bold=True)
 
 
 class Credentials(BaseModel):
@@ -33,35 +26,28 @@ class Credentials(BaseModel):
     """
 
     username: str
-    password: str
     user_id: str
     access_token: str
 
 
-def check_response_auth(response: requests.Response) -> requests.Response:
+def get_db_engine(connection_string: str) -> Engine:
     """
-    Verify that a response object is 'ok', otherwise print the error and raise
-    an exception.
+    Use SQLAlchemy to create a DB engine.
     """
-    if response.status_code in [401, 403]:
-        echo_red("Authorization Error: please try 'fides user login' and try again.")
-        raise SystemExit(1)
-    return response
 
-
-def check_response(response: requests.Response) -> requests.Response:
-    """
-    Check that a response has valid JSON.
-    """
+    # Pymssql doesn't support this arg
+    connect_args = {"connect_timeout": 10} if "pymssql" not in connection_string else {}
+    try:
+        engine = sqlalchemy.create_engine(connection_string, connect_args=connect_args)
+    except Exception as err:
+        raise Exception("Failed to create engine!") from err
 
     try:
-        response.json()
-    except JSONDecodeError as json_error:
-        logger.error(response.status_code)
-        logger.error(response.text)
-        raise json_error
-    else:
-        return response
+        with engine.begin() as connection:
+            connection.execute("SELECT 1")
+    except Exception as err:
+        raise Exception(f"Database connection failed with engine:\n{engine}!") from err
+    return engine
 
 
 def validate_db_engine(connection_string: str) -> None:
@@ -76,25 +62,6 @@ def validate_db_engine(connection_string: str) -> None:
         raise ConnectorAuthFailureException(error)
 
 
-def get_db_engine(connection_string: str) -> Engine:
-    """
-    Use SQLAlchemy to create a DB engine.
-    """
-    try:
-        engine = sqlalchemy.create_engine(
-            connection_string, connect_args={"connect_timeout": 10}
-        )
-    except Exception as err:
-        raise Exception("Failed to create engine!") from err
-
-    try:
-        with engine.begin() as connection:
-            connection.execute("SELECT 1")
-    except Exception as err:
-        raise Exception(f"Database connection failed with engine:\n{engine}!") from err
-    return engine
-
-
 def get_all_level_fields(fields: list) -> Iterator[DatasetField]:
     """
     Traverses all levels of fields that exist in a dataset
@@ -102,9 +69,14 @@ def get_all_level_fields(fields: list) -> Iterator[DatasetField]:
     """
     for field in fields:
         yield field
-        if field.fields:
-            for nested_field in get_all_level_fields(field.fields):
-                yield nested_field
+        if isinstance(field, dict):
+            if field["fields"]:
+                for nested_field in get_all_level_fields(field["fields"]):
+                    yield nested_field
+        else:
+            if field.fields:
+                for nested_field in get_all_level_fields(field.fields):
+                    yield nested_field
 
 
 def get_manifest_list(manifests_dir: str) -> List[str]:

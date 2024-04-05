@@ -1,6 +1,6 @@
 import pytest
 
-from fides.core.config.security_settings import SecuritySettings
+from fides.config.security_settings import SecuritySettings
 
 
 @pytest.mark.unit
@@ -33,6 +33,17 @@ class TestSecuirtySettings:
         settings = SecuritySettings(cors_origins=", ".join(urls))
 
         assert settings.cors_origins == urls
+
+    def test_validate_cors_origins_urls_with_paths(self):
+        with pytest.raises(ValueError) as e:
+            SecuritySettings(cors_origins=["http://test.com/"])
+
+        assert "URL origin values cannot contain a path." in str(e)
+
+        with pytest.raises(ValueError) as e:
+            SecuritySettings(cors_origins=["http://test.com/123/456"])
+
+        assert "URL origin values cannot contain a path." in str(e)
 
     def test_assemble_root_access_token_none(self):
         settings = SecuritySettings(oauth_root_client_secret="")

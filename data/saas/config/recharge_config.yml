@@ -1,14 +1,19 @@
 saas_config:
   fides_key: <instance_fides_key>
-  name: Recharge SaaS Config
+  name: Recharge
   type: recharge
   description: A sample schema representing the Recharge connector for Fides
-  version: 0.0.1
+  user_guide: https://docs.ethyca.com/user-guides/integrations/saas-integrations/recharge
+  version: 0.0.3
 
   connector_params:
     - name: domain
       default_value: api.rechargeapps.com
+      description: Your Recharge URL
     - name: api_key
+      label: API key
+      description: Your Recharge API key.
+      sensitive: True
 
   client_config:
     protocol: https

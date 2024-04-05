@@ -4,8 +4,8 @@ from datetime import datetime
 import pytest
 from bson import ObjectId
 
-from fides.api.ops.graph.config import CollectionAddress, FieldPath
-from fides.api.ops.task.filter_results import (
+from fides.api.graph.config import CollectionAddress, FieldPath
+from fides.api.task.filter_results import (
     filter_data_categories,
     remove_empty_containers,
     select_and_save_field,
@@ -343,7 +343,11 @@ class TestFilterResults:
             "B": "b",
         }
 
-        assert select_and_save_field(final_results, flat, FieldPath("K", "L"),) == {
+        assert select_and_save_field(
+            final_results,
+            flat,
+            FieldPath("K", "L"),
+        ) == {
             "A": "a",
             "C": ["d", "e", "f"],
             "D": ["g", "h", "i", "j"],
@@ -826,7 +830,7 @@ class TestFilterResults:
                         "id",
                     ),
                 ],
-                "user.financial.account_number": [
+                "user.financial.bank_account": [
                     FieldPath(
                         "ccn",
                     )
@@ -931,7 +935,7 @@ class TestFilterResults:
                         "_id",
                     )
                 ],
-                "user.date_of_birth": [
+                "user.demographic.date_of_birth": [
                     FieldPath(
                         "birthday",
                     )
@@ -941,7 +945,7 @@ class TestFilterResults:
                         "customer_id",
                     )
                 ],
-                "user.gender": [
+                "user.demographic.gender": [
                     FieldPath(
                         "gender",
                     )

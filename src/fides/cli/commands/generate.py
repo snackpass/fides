@@ -1,10 +1,12 @@
 """Contains the generate group of CLI commands for fides."""
-import click
+
+import rich_click as click
 
 from fides.cli.options import (
     aws_access_key_id_option,
     aws_region_option,
     aws_secret_access_key_option,
+    aws_session_token_option,
     connection_string_option,
     credentials_id_option,
     include_null_flag,
@@ -27,7 +29,7 @@ from fides.core import system as _system
 @click.pass_context
 def generate(ctx: click.Context) -> None:
     """
-    Generate fides resource types
+    Programmatically generate Fides objects.
     """
 
 
@@ -35,11 +37,11 @@ def generate(ctx: click.Context) -> None:
 @click.pass_context
 def generate_dataset(ctx: click.Context) -> None:
     """
-    Generate fides Dataset resources
+    Generate Fides datasets.
     """
 
 
-@generate_dataset.command(name="db")
+@generate_dataset.command(name="db")  # type: ignore
 @click.pass_context
 @click.argument("output_filename", type=str)
 @credentials_id_option
@@ -54,13 +56,7 @@ def generate_dataset_db(
     include_null: bool,
 ) -> None:
     """
-    Connect to a database directly via a SQLAlchemy-style connection string and
-    generate a dataset manifest file that consists of every schema/table/field.
-    Connection string can be supplied as an option or a credentials reference
-    to fides config.
-
-    This is a one-time operation that does not track the state of the database.
-    It will need to be run again if the database schema changes.
+    Generate a Fides dataset by walking a database and recording every schema/table/field.
     """
     actual_connection_string = handle_database_credentials_options(
         fides_config=ctx.obj["CONFIG"],
@@ -79,11 +75,11 @@ def generate_dataset_db(
 @click.pass_context
 def generate_dataset_gcp(ctx: click.Context) -> None:
     """
-    Generate fides Dataset resources for Google Cloud Platform
+    Generate Fides datasets from Google Cloud Platform.
     """
 
 
-@generate_dataset_gcp.command(name="bigquery")
+@generate_dataset_gcp.command(name="bigquery")  # type: ignore
 @click.pass_context
 @click.argument("dataset_name", type=str)
 @click.argument("output_filename", type=str)
@@ -100,13 +96,7 @@ def generate_dataset_bigquery(
     include_null: bool,
 ) -> None:
     """
-    Connect to a BigQuery dataset directly via a SQLAlchemy connection and
-    generate a dataset manifest file that consists of every schema/table/field.
-    A path to a google authorization keyfile can be supplied as an option, or a
-    credentials reference to fides config.
-
-    This is a one-time operation that does not track the state of the dataset.
-    It will need to be run again if the dataset schema changes.
+    Generate a dataset object from BigQuery using a SQLAlchemy connection string.
     """
 
     bigquery_config = handle_bigquery_config_options(
@@ -123,15 +113,66 @@ def generate_dataset_bigquery(
     )
 
 
+@generate_dataset.group(name="aws")
+@click.pass_context
+def generate_dataset_aws(ctx: click.Context) -> None:
+    """
+    Generate Fides datasets from specific Amazon Web Services.
+    """
+
+
+@generate_dataset_aws.command(name="dynamodb")  # type: ignore
+@click.pass_context
+@click.argument("output_filename", type=str)
+@credentials_id_option
+@aws_access_key_id_option
+@aws_secret_access_key_option
+@aws_session_token_option
+@aws_region_option
+@include_null_flag
+@with_analytics
+def generate_dataset_dynamodb(
+    ctx: click.Context,
+    output_filename: str,
+    include_null: bool,
+    credentials_id: str,
+    access_key_id: str,
+    secret_access_key: str,
+    session_token: str,
+    region: str,
+) -> None:
+    """
+    Generate a dataset object from BigQuery using a SQLAlchemy connection string.
+    """
+
+    config = ctx.obj["CONFIG"]
+    aws_config = handle_aws_credentials_options(
+        fides_config=config,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
+        session_token=session_token,
+        region=region,
+        credentials_id=credentials_id,
+    )
+
+    bigquery_dataset = _dataset.generate_dynamo_db_datasets(aws_config)
+
+    _dataset.write_dataset_manifest(
+        file_name=output_filename,
+        include_null=include_null,
+        datasets=[bigquery_dataset],
+    )
+
+
 @generate.group(name="system")
 @click.pass_context
 def generate_system(ctx: click.Context) -> None:
     """
-    Generate fides System resources
+    Generate Fides systems.
     """
 
 
-@generate_system.command(name="okta")
+@generate_system.command(name="okta")  # type: ignore
 @click.pass_context
 @click.argument("output_filename", type=str)
 @credentials_id_option
@@ -150,13 +191,8 @@ def generate_system_okta(
     org_key: str,
 ) -> None:
     """
-    Generates systems for your Okta applications. Connect to an Okta admin
-    account by providing an organization url and auth token or a credentials
-    reference to fides config. Auth token and organization url can also
-    be supplied by setting environment variables as defined by the okta python sdk.
-
-    This is a one-time operation that does not track the state of the okta resources.
-    It will need to be run again if the tracked resources change.
+    Generates systems from your Okta applications. Connects via
+    an Okta admin account.
     """
     config = ctx.obj["CONFIG"]
     okta_config = handle_okta_credentials_options(
@@ -176,12 +212,13 @@ def generate_system_okta(
     )
 
 
-@generate_system.command(name="aws")
+@generate_system.command(name="aws")  # type: ignore
 @click.pass_context
 @click.argument("output_filename", type=str)
 @credentials_id_option
 @aws_access_key_id_option
 @aws_secret_access_key_option
+@aws_session_token_option
 @aws_region_option
 @include_null_flag
 @organization_fides_key_option
@@ -194,23 +231,19 @@ def generate_system_aws(
     credentials_id: str,
     access_key_id: str,
     secret_access_key: str,
+    session_token: str,
     region: str,
 ) -> None:
     """
     Connect to an aws account and generate a system manifest file that consists of every
     tracked resource.
-    Credentials can be supplied as options, a credentials
-    reference to fides config, or boto3 environment configuration.
-    Tracked resources: [Redshift, RDS, DynamoDb, S3]
-
-    This is a one-time operation that does not track the state of the aws resources.
-    It will need to be run again if the tracked resources change.
     """
     config = ctx.obj["CONFIG"]
     aws_config = handle_aws_credentials_options(
         fides_config=config,
         access_key_id=access_key_id,
         secret_access_key=secret_access_key,
+        session_token=session_token,
         region=region,
         credentials_id=credentials_id,
     )

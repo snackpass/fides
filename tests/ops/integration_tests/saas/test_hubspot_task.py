@@ -2,27 +2,25 @@ import random
 
 import pytest
 
-from fides.api.ops.graph.graph import DatasetGraph
-from fides.api.ops.models.privacy_request import PrivacyRequest
-from fides.api.ops.schemas.redis_cache import Identity
-from fides.api.ops.service.connectors import get_connector
-from fides.api.ops.task import graph_task
-from fides.api.ops.task.filter_results import filter_data_categories
-from fides.api.ops.task.graph_task import get_cached_data_for_erasures
-from fides.core.config import CONFIG
+from fides.api.graph.graph import DatasetGraph
+from fides.api.models.privacy_request import PrivacyRequest
+from fides.api.schemas.redis_cache import Identity
+from fides.api.service.connectors import get_connector
+from fides.api.task import graph_task
+from fides.api.task.filter_results import filter_data_categories
+from fides.api.task.graph_task import get_cached_data_for_erasures
+from fides.config import CONFIG
 from tests.fixtures.saas.hubspot_fixtures import HubspotTestClient, user_exists
 from tests.ops.graph.graph_test_util import assert_rows_match
 from tests.ops.test_helpers.saas_test_utils import poll_for_existence
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_hubspot
 def test_hubspot_connection_test(connection_config_hubspot) -> None:
     get_connector(connection_config_hubspot).test_connection()
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_hubspot
 @pytest.mark.asyncio
 async def test_hubspot_access_request_task(
     db,
@@ -91,8 +89,6 @@ async def test_hubspot_access_request_task(
     }
     assert set(filtered_results[f"{dataset_name}:contacts"][0].keys()) == {
         "id",
-        "createdAt",
-        "updatedAt",
         "properties",
     }
 
@@ -118,7 +114,6 @@ async def test_hubspot_access_request_task(
         "email",
         "id",
         "userId",
-        "updatedAt",
         "firstName",
         "lastName",
     }
@@ -128,12 +123,11 @@ async def test_hubspot_access_request_task(
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_hubspot
 @pytest.mark.asyncio
 async def test_hubspot_erasure_request_task(
     db,
     policy,
-    erasure_policy_string_rewrite,
+    erasure_policy_string_rewrite_name_and_email,
     connection_config_hubspot,
     dataset_config_hubspot,
     hubspot_erasure_identity_email,
@@ -173,7 +167,7 @@ async def test_hubspot_erasure_request_task(
     CONFIG.execution.masking_strict = False  # Allow delete
     x = await graph_task.run_erasure(
         privacy_request,
-        erasure_policy_string_rewrite,
+        erasure_policy_string_rewrite_name_and_email,
         graph,
         [connection_config_hubspot],
         identity_kwargs,
@@ -186,7 +180,7 @@ async def test_hubspot_erasure_request_task(
     assert x == {
         "hubspot_instance:contacts": 1,
         "hubspot_instance:owners": 0,
-        "hubspot_instance:subscription_preferences": 1,
+        "hubspot_instance:subscription_preferences": 2,
         "hubspot_instance:users": 1,
     }
 
@@ -194,13 +188,15 @@ async def test_hubspot_erasure_request_task(
     contact_response = hubspot_test_client.get_contact(contact_id=contact_id)
     contact_body = contact_response.json()
     assert contact_body["properties"]["firstname"] == "MASKED"
+    assert contact_body["properties"]["email"] == f"{privacy_request.id}@company.com"
 
     # verify user is unsubscribed
     email_subscription_response = hubspot_test_client.get_email_subscriptions(
         email=hubspot_erasure_identity_email
     )
     subscription_body = email_subscription_response.json()
-    assert subscription_body["subscriptionStatuses"][0]["status"] == "NOT_SUBSCRIBED"
+    for subscription_status in subscription_body["subscriptionStatuses"]:
+        assert subscription_status["status"] == "NOT_SUBSCRIBED"
 
     # verify user is deleted
     error_message = f"User with user id {user_id} could not be deleted from Hubspot"

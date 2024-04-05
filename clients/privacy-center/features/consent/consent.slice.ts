@@ -1,13 +1,25 @@
 import { createSelector, createSlice, PayloadAction } from "@reduxjs/toolkit";
+import {
+  constructFidesRegionString,
+  RecordsServedResponse,
+  UserGeolocation,
+} from "fides-js";
 
 import type { RootState } from "~/app/store";
 import { VerificationType } from "~/components/modals/types";
 import { baseApi } from "~/features/common/api.slice";
 import {
+  ComponentType,
   ConsentPreferences,
   ConsentPreferencesWithVerificationCode,
+  PreferencesSaved,
+  RecordConsentServedRequest,
+  Page_PrivacyExperienceResponse_,
+  PrivacyNoticeRegion,
+  PrivacyPreferencesRequest,
+  Consent,
 } from "~/types/api";
-import { ConfigConsentOption } from "~/types/config";
+import { selectSettings } from "../common/settings.slice";
 
 import { FidesKeyToConsent } from "./types";
 
@@ -36,7 +48,11 @@ export const consentApi = baseApi.injectEndpoints({
     >({
       query: ({ id }) => `${VerificationType.ConsentRequest}/${id}/preferences`,
     }),
-    updateConsentRequestPreferences: build.mutation<
+    /**
+     * This endpoint is deprecated in favor of
+     * /consent-request/{id}/privacy-preferences
+     * */
+    updateConsentRequestPreferencesDeprecated: build.mutation<
       ConsentPreferences,
       { id: string; body: ConsentPreferencesWithVerificationCode }
     >({
@@ -47,13 +63,61 @@ export const consentApi = baseApi.injectEndpoints({
         credentials: "include",
       }),
     }),
+    getPrivacyExperience: build.query<
+      Page_PrivacyExperienceResponse_,
+      { region: PrivacyNoticeRegion }
+    >({
+      query: (payload) => ({
+        url: "privacy-experience/",
+        params: {
+          component: ComponentType.PRIVACY_CENTER,
+          has_notices: true,
+          show_disabled: false,
+          has_config: true,
+          systems_applicable: true,
+          ...payload,
+        },
+      }),
+      providesTags: ["Privacy Experience"],
+    }),
+    updatePrivacyPreferences: build.mutation<
+      PreferencesSaved,
+      { id: string; body: PrivacyPreferencesRequest }
+    >({
+      query: ({ id, body }) => ({
+        url: `${VerificationType.ConsentRequest}/${id}/privacy-preferences`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["Privacy Experience"],
+    }),
+    getUserGeolocation: build.query<UserGeolocation, string>({
+      query: (url) => ({
+        url,
+        method: "GET",
+      }),
+    }),
+    updateNoticesServed: build.mutation<
+      RecordsServedResponse,
+      { id: string; body: RecordConsentServedRequest }
+    >({
+      query: ({ id, body }) => ({
+        url: `${VerificationType.ConsentRequest}/${id}/notices-served`,
+        method: "PATCH",
+        body,
+      }),
+    }),
   }),
 });
 
 export const {
   usePostConsentRequestVerificationMutation,
   useLazyGetConsentRequestPreferencesQuery,
-  useUpdateConsentRequestPreferencesMutation,
+  useUpdateConsentRequestPreferencesDeprecatedMutation,
+  useGetPrivacyExperienceQuery,
+  useUpdatePrivacyPreferencesMutation,
+  useGetUserGeolocationQuery,
+  useUpdateNoticesServedMutation,
 } = consentApi;
 
 type State = {
@@ -61,11 +125,17 @@ type State = {
   fidesKeyToConsent: FidesKeyToConsent;
   /** The consent choices stored on the server (returned by the most recent API call). */
   persistedFidesKeyToConsent: FidesKeyToConsent;
+  /** User id based on the device */
+  fidesUserDeviceId: string | undefined;
+  /** Location (ex: US-CA) */
+  location: string | undefined;
 };
 
 const initialState: State = {
   fidesKeyToConsent: {},
   persistedFidesKeyToConsent: {},
+  fidesUserDeviceId: undefined,
+  location: undefined,
 };
 
 export const consentSlice = createSlice({
@@ -75,10 +145,10 @@ export const consentSlice = createSlice({
     changeConsent(
       draftState,
       {
-        payload: { option, value },
-      }: PayloadAction<{ option: ConfigConsentOption; value: boolean }>
+        payload: { key, value },
+      }: PayloadAction<{ key: string; value: boolean }>
     ) {
-      draftState.fidesKeyToConsent[option.fidesDataUseKey] = value;
+      draftState.fidesKeyToConsent[key] = value;
     },
 
     /**
@@ -89,22 +159,43 @@ export const consentSlice = createSlice({
      * directly because there are 3 different endpoints that may return this info. If we simplify
      * how that fetching works with/without verification, this would also become simpler.
      */
-    updateConsentFromApi(
+    updateUserConsentPreferencesFromApi(
       draftState,
       { payload }: PayloadAction<ConsentPreferences>
     ) {
       const consentPreferences = payload.consent ?? [];
-      consentPreferences.forEach((consent) => {
+      consentPreferences.forEach((consent: Consent) => {
         draftState.fidesKeyToConsent[consent.data_use] = consent.opt_in;
         draftState.persistedFidesKeyToConsent[consent.data_use] =
           consent.opt_in;
       });
     },
+
+    setFidesUserDeviceId(
+      draftState,
+      { payload }: PayloadAction<string | undefined>
+    ) {
+      draftState.fidesUserDeviceId = payload;
+    },
+
+    setLocation(draftState, action: PayloadAction<string | undefined>) {
+      draftState.location = action.payload;
+    },
+
+    clearLocation(draftState) {
+      draftState.location = undefined;
+    },
   },
 });
 
 export const { reducer } = consentSlice;
-export const { changeConsent, updateConsentFromApi } = consentSlice.actions;
+export const {
+  changeConsent,
+  updateUserConsentPreferencesFromApi,
+  setFidesUserDeviceId,
+  setLocation,
+  clearLocation,
+} = consentSlice.actions;
 
 export const selectConsentState = (state: RootState) => state.consent;
 
@@ -116,4 +207,41 @@ export const selectFidesKeyToConsent = createSelector(
 export const selectPersistedFidesKeyToConsent = createSelector(
   selectConsentState,
   (state) => state.persistedFidesKeyToConsent
+);
+
+// Privacy experience
+export const selectFidesUserDeviceId = createSelector(
+  selectConsentState,
+  (state) => state.fidesUserDeviceId
+);
+
+export const selectUserRegion = createSelector(
+  [(RootState) => RootState, selectConsentState, selectSettings],
+  (RootState, consentState, settingsState) => {
+    const { settings } = settingsState;
+    if (settings?.IS_GEOLOCATION_ENABLED && settings?.GEOLOCATION_API_URL) {
+      let geolocation: UserGeolocation | undefined = {
+        location: consentState.location,
+      };
+      if (!geolocation.location) {
+        geolocation = consentApi.endpoints.getUserGeolocation.select(
+          settings.GEOLOCATION_API_URL
+        )(RootState)?.data;
+      }
+      return constructFidesRegionString(geolocation) as PrivacyNoticeRegion;
+    }
+    return undefined;
+  }
+);
+
+export const selectPrivacyExperience = createSelector(
+  [(RootState) => RootState, selectUserRegion, selectFidesUserDeviceId],
+  (RootState, region) => {
+    if (!region) {
+      return undefined;
+    }
+    return consentApi.endpoints.getPrivacyExperience.select({
+      region,
+    })(RootState)?.data?.items[0];
+  }
 );

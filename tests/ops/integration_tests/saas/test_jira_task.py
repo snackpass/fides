@@ -4,26 +4,26 @@ from time import sleep
 import pytest
 import requests
 
-from fides.api.ops.graph.graph import DatasetGraph
-from fides.api.ops.models.privacy_request import PrivacyRequest
-from fides.api.ops.schemas.redis_cache import Identity
-from fides.api.ops.service.connectors import get_connector
-from fides.api.ops.task import graph_task
-from fides.api.ops.task.graph_task import get_cached_data_for_erasures
-from fides.core.config import get_config
+from fides.api.graph.graph import DatasetGraph
+from fides.api.models.privacy_request import PrivacyRequest
+from fides.api.schemas.redis_cache import Identity
+from fides.api.service.connectors import get_connector
+from fides.api.task import graph_task
+from fides.api.task.graph_task import get_cached_data_for_erasures
+from fides.config import get_config
 from tests.ops.graph.graph_test_util import assert_rows_match
 
 CONFIG = get_config()
 
 
+@pytest.mark.skip(reason="No active account")
 @pytest.mark.integration_saas
-@pytest.mark.integration_jira
 def test_jira_connection_test(jira_connection_config) -> None:
     get_connector(jira_connection_config).test_connection()
 
 
+@pytest.mark.skip(reason="No active account")
 @pytest.mark.integration_saas
-@pytest.mark.integration_jira
 @pytest.mark.asyncio
 async def test_jira_access_request_task(
     db,
@@ -73,8 +73,8 @@ async def test_jira_access_request_task(
     assert v[f"{dataset_name}:customer"][0]["emailAddress"] == jira_identity_email
 
 
+@pytest.mark.skip(reason="No active account")
 @pytest.mark.integration_saas
-@pytest.mark.integration_jira
 @pytest.mark.asyncio
 async def test_jira_erasure_request_task(
     db,

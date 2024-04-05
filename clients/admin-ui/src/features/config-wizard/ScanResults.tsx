@@ -17,9 +17,9 @@ import {
 } from "~/features/common/ColumnDropdown";
 import { isErrorResult } from "~/features/common/helpers";
 import { useAPIHelper } from "~/features/common/hooks";
-import { useInterzoneNav } from "~/features/common/hooks/useInterzoneNav";
+import { useSystemOrDatamapRoute } from "~/features/common/hooks/useSystemOrDatamapRoute";
+import WarningModal from "~/features/common/modals/WarningModal";
 import { SystemsCheckboxTable } from "~/features/common/SystemsCheckboxTable";
-import WarningModal from "~/features/common/WarningModal";
 import {
   setSystemsToClassify,
   useUpsertSystemsMutation,
@@ -44,7 +44,7 @@ const ScanResults = () => {
   const systems = useAppSelector(selectSystemsForReview);
   const dispatch = useAppDispatch();
   const router = useRouter();
-  const { systemOrDatamapRoute } = useInterzoneNav();
+  const { systemOrDatamapRoute } = useSystemOrDatamapRoute();
 
   const {
     isOpen: isWarningOpen,

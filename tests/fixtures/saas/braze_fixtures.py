@@ -7,19 +7,19 @@ import pytest
 import requests
 from sqlalchemy.orm import Session
 
-from fides.api.ctl.sql_models import Dataset as CtlDataset
-from fides.api.ops.models.connectionconfig import (
+from fides.api.cryptography import cryptographic_util
+from fides.api.db import session
+from fides.api.models.connectionconfig import (
     AccessLevel,
     ConnectionConfig,
     ConnectionType,
 )
-from fides.api.ops.models.datasetconfig import DatasetConfig
-from fides.api.ops.util.saas_util import (
+from fides.api.models.datasetconfig import DatasetConfig
+from fides.api.models.sql_models import Dataset as CtlDataset
+from fides.api.util.saas_util import (
     load_config_with_replacement,
     load_dataset_with_replacement,
 )
-from fides.lib.cryptography import cryptographic_util
-from fides.lib.db import session
 from tests.ops.test_helpers.saas_test_utils import poll_for_existence
 from tests.ops.test_helpers.vault_client import get_secrets
 
@@ -184,8 +184,6 @@ def braze_erasure_data(
 
     assert response.ok
 
-    sleep(30)
-
     error_message = (
         f"User with email {braze_erasure_identity_email} could not be added to Braze"
     )
@@ -193,6 +191,8 @@ def braze_erasure_data(
         _user_exists,
         (braze_erasure_identity_email, braze_secrets),
         error_message=error_message,
+        interval=60,
+        verification_count=10,
     )
 
     yield response_data
@@ -231,17 +231,14 @@ def _user_exists(braze_erasure_identity_email: str, braze_secrets):
     }
     body = {
         "email_address": braze_erasure_identity_email,
-        "fields_to_export": ["email"],
+        "fields_to_export": ["email", "first_name"],
     }
 
-    user_response = requests.post(
+    response = requests.post(
         url=f"{base_url}/users/export/ids",
         json=body,
         headers=headers,
     )
+    users = response.json().get("users")
 
-    # we expect 404 if user doesn't exist
-    if 404 == user_response.status_code:
-        return None
-
-    return user_response.json()
+    return response if users and users[0]["first_name"] != "MASKED" else None

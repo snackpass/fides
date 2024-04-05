@@ -21,11 +21,20 @@ db="mysql_example"
 port=3306
 
 [redshift]
-external_uri=""
+host=""
+port=""
+user=""
+password=""
+database=""
 db_schema=""
 
 [snowflake]
-external_uri=""
+account_identifier=""
+user_login_name=""
+password=""
+warehouse_name=""
+database_name=""
+schema_name=""
 
 [bigquery]
 dataset=""
@@ -57,3 +66,9 @@ port=5432
 uri="http://fides:8080"
 username="root_user"
 password="Testpassword1!"
+polling_timeout=1800
+
+[dynamodb_example]
+aws_access_key_id = ""
+aws_secret_access_key = ""
+region = ""

@@ -1,5 +1,6 @@
 import {
   Box,
+  Button,
   Center,
   Flex,
   Input,
@@ -15,15 +16,22 @@ import {
   setSearch,
   useGetAllConnectionTypesQuery,
 } from "connection-type/connection-type.slice";
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useDispatch } from "react-redux";
 
 import { useAppSelector } from "~/app/hooks";
+import Restrict from "~/features/common/Restrict";
+import ConnectorTemplateUploadModal from "~/features/connector-templates/ConnectorTemplateUploadModal";
+import { ScopeRegistryEnum } from "~/types/api";
 
-import Breadcrumb from "./Breadcrumb";
 import ConnectionTypeFilter from "./ConnectionTypeFilter";
 import ConnectionTypeList from "./ConnectionTypeList";
-import { STEPS } from "./constants";
 
 const ChooseConnection: React.FC = () => {
   const dispatch = useDispatch();
@@ -32,6 +40,7 @@ const ChooseConnection: React.FC = () => {
   const filters = useAppSelector(selectConnectionTypeFilters);
   const { data, isFetching, isLoading, isSuccess } =
     useGetAllConnectionTypesQuery(filters);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const handleSearchChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -56,6 +65,10 @@ const ChooseConnection: React.FC = () => {
     [data]
   );
 
+  const handleUploadButtonClick = () => {
+    setIsModalOpen(true);
+  };
+
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -66,7 +79,6 @@ const ChooseConnection: React.FC = () => {
 
   return (
     <>
-      <Breadcrumb steps={[STEPS[0], STEPS[1]]} />
       <Flex minWidth="fit-content">
         <Box
           color="gray.700"
@@ -90,12 +102,28 @@ const ChooseConnection: React.FC = () => {
             borderRadius="md"
             name="search"
             onChange={debounceHandleSearchChange}
-            placeholder="Search Integrations"
+            placeholder="Search integrations"
             size="sm"
             type="search"
           />
         </InputGroup>
+        <Restrict scopes={[ScopeRegistryEnum.CONNECTOR_TEMPLATE_REGISTER]}>
+          <Button
+            colorScheme="primary"
+            type="submit"
+            minWidth="auto"
+            data-testid="upload-btn"
+            size="sm"
+            onClick={handleUploadButtonClick}
+          >
+            Upload connector
+          </Button>
+        </Restrict>
       </Flex>
+      <ConnectorTemplateUploadModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+      />
       {(isFetching || isLoading) && (
         <Center>
           <Spinner />
