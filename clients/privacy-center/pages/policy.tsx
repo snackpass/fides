@@ -3,8 +3,6 @@ import type { NextPage } from "next";
 import Head from "next/head";
 import { Flex, Stack, Image } from "@fidesui/react";
 
-import { config } from "~/constants";
-
 const PrivacyPolicy: NextPage = () => (
   <div>
     <Head>
@@ -23,7 +21,7 @@ const PrivacyPolicy: NextPage = () => (
         alignItems="center"
       >
         <Image
-          src={config.logo_path}
+          src="/logo.svg"
           margin="8px"
           height="68px"
           alt="Logo"
