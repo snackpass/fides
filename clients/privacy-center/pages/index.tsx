@@ -32,7 +32,6 @@ import {
   selectPrivacyExperience,
   setLocation,
 } from "~/features/consent/consent.slice";
-import NoticeEmptyStateModal from "~/components/modals/NoticeEmptyStateModal";
 import { selectIsNoticeDriven } from "~/features/common/settings.slice";
 
 const Home: NextPage = () => {
@@ -253,11 +252,6 @@ const Home: NextPage = () => {
           successHandler={consentModalSuccessHandler}
         />
       </main>
-
-      <NoticeEmptyStateModal
-        isOpen={noticeEmptyStateModal.isOpen}
-        onClose={noticeEmptyStateModal.onClose}
-      />
     </div>
   );
 };
