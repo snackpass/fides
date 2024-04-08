@@ -70,6 +70,7 @@ describe("Smoke test", () => {
         numCompletedRequests = items.filter(
           (i) => i.status === "complete"
         ).length;
+        // @ts-expect-error id exists on type
         mostRecentPrivacyRequestId = Cypress._.maxBy(items, "created_at").id;
       });
 
