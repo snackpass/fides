@@ -1,11 +1,11 @@
 import {
-  Flex,
-  Heading,
-  Link,
+  Image,
   Text,
-  Stack,
   useToast,
   useDisclosure,
+  Flex,
+  Stack,
+  Heading,
 } from "@fidesui/react";
 import React, { useEffect, useState } from "react";
 import type { NextPage } from "next";
@@ -41,8 +41,7 @@ const Home: NextPage = () => {
   const config = useConfig();
   const [isVerificationRequired, setIsVerificationRequired] =
     useState<boolean>(false);
-  const [isConsentVerificationDisabled, setIsConsentVerificationDisabled] =
-    useState<boolean>(false);
+  const [, setIsConsentVerificationDisabled] = useState<boolean>(false);
   const toast = useToast();
   const {
     isOpen: isPrivacyModalOpen,
@@ -176,83 +175,84 @@ const Home: NextPage = () => {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <Text
-        fontSize={["small", "medium"]}
-        fontWeight="medium"
-        maxWidth={624}
-        textAlign="center"
-        color="gray.600"
-        data-testid="description"
+      <header>
+        <Flex
+          bg="gray.100"
+          minHeight={14}
+          p={1}
+          width="100%"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <Image
+            src={config.logo_path}
+            margin="8px"
+            height="68px"
+            alt="Logo"
+            data-testid="logo"
+          />
+        </Flex>
+      </header>
+
+      <main
+        data-testid="home"
+        style={{ overflow: "auto", height: "100vh", paddingBottom: "20vh" }}
       >
-        {config.description}
-      </Text>
-
-      {config.description_subtext?.map((paragraph, index) => (
-        <Text
-          fontSize={["small", "medium"]}
-          fontWeight="medium"
-          maxWidth={624}
-          textAlign="center"
-          color="gray.600"
-          data-testid={`description-${index}`}
-          // eslint-disable-next-line react/no-array-index-key
-          key={`description-${index}`}
+        <Stack
+          align="center"
+          py={["6", "16"]}
+          px={5}
+          spacing={14}
+          overflow="scroll"
         >
-          {paragraph}
-        </Text>
-      ))}
+          <Stack align="center" spacing={3}>
+            <Heading
+              fontSize={["3xl", "4xl"]}
+              color="gray.600"
+              fontWeight="semibold"
+              textAlign="center"
+              data-testid="heading"
+            >
+              {config.title}
+            </Heading>
+            <Text
+              fontSize={["small", "medium"]}
+              fontWeight="medium"
+              maxWidth={624}
+              textAlign="center"
+              color="gray.600"
+              data-testid="description"
+            >
+              {config.description}
+            </Text>
+          </Stack>
+          <Flex m={-2} flexDirection={["column", "column", "row"]}>
+            {content}
+          </Flex>
+        </Stack>
+        <PrivacyRequestModal
+          isOpen={isPrivacyModalOpen}
+          onClose={onPrivacyModalClose}
+          openAction={openAction}
+          currentView={currentPrivacyModalView}
+          setCurrentView={setCurrentPrivacyModalView}
+          privacyRequestId={privacyRequestId}
+          setPrivacyRequestId={setPrivacyRequestId}
+          isVerificationRequired={isVerificationRequired}
+          successHandler={privacyModalSuccessHandler}
+        />
 
-      {config.addendum?.map((paragraph, index) => (
-        <Text
-          fontSize={["small", "medium"]}
-          fontWeight="medium"
-          maxWidth={624}
-          color="gray.600"
-          data-testid={`addendum-${index}`}
-          // eslint-disable-next-line react/no-array-index-key
-          key={`addendum-${index}`}
-        >
-          {paragraph}
-        </Text>
-      ))}
-      {config.privacy_policy_url && config.privacy_policy_url_text ? (
-        <Link
-          fontSize={["small", "medium"]}
-          fontWeight="medium"
-          textAlign="center"
-          textDecoration="underline"
-          color="gray.600"
-          href={config.privacy_policy_url}
-          isExternal
-        >
-          {config.privacy_policy_url_text}
-        </Link>
-      ) : null}
-
-      <PrivacyRequestModal
-        isOpen={isPrivacyModalOpen}
-        onClose={onPrivacyModalClose}
-        openAction={openAction}
-        currentView={currentPrivacyModalView}
-        setCurrentView={setCurrentPrivacyModalView}
-        privacyRequestId={privacyRequestId}
-        setPrivacyRequestId={setPrivacyRequestId}
-        isVerificationRequired={isVerificationRequired}
-        successHandler={privacyModalSuccessHandler}
-      />
-
-      <ConsentRequestModal
-        isOpen={isConsentModalOpen}
-        onClose={onConsentModalClose}
-        currentView={currentConsentModalView}
-        setCurrentView={setCurrentConsentModalView}
-        consentRequestId={consentRequestId}
-        setConsentRequestId={setConsentRequestId}
-        isVerificationRequired={
-          isVerificationRequired && !isConsentVerificationDisabled
-        }
-        successHandler={consentModalSuccessHandler}
-      />
+        <ConsentRequestModal
+          isOpen={isConsentModalOpen}
+          onClose={onConsentModalClose}
+          currentView={currentConsentModalView}
+          setCurrentView={setCurrentConsentModalView}
+          consentRequestId={consentRequestId}
+          setConsentRequestId={setConsentRequestId}
+          isVerificationRequired={isVerificationRequired}
+          successHandler={consentModalSuccessHandler}
+        />
+      </main>
 
       <NoticeEmptyStateModal
         isOpen={noticeEmptyStateModal.isOpen}
