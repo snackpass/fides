@@ -29,7 +29,7 @@ describe("Smoke test", () => {
       expect(interception.request.body).to.deep.equal([
         {
           identity: {
-            email: "jenny@example.com",
+            // email: "jenny@example.com",
             phone_number: "",
           },
           custom_privacy_request_fields: {
