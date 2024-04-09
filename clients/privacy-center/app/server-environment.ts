@@ -244,7 +244,7 @@ export const loadConfigFromFile = async (
     "file:///app/config/config.json",
     "file:///privacy-center/config/config.json",
     "file:///clients/privacy-center/config/config.json",
-    "file:./config/config.json",
+    "file:./config.json",
     "file:../config/config.json",
   ];
   const file = await loadConfigFile(urls);
