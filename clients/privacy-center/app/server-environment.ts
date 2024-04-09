@@ -295,6 +295,7 @@ export const loadPrivacyCenterEnvironment =
     // DEFER: Log a version number here (see https://github.com/ethyca/fides/issues/3171)
     if (process.env.NODE_ENV === "development") {
       console.log("Load Privacy Center environment for session...");
+      console.log({ filename: __filename });
     }
 
     // Load environment variables
@@ -306,10 +307,10 @@ export const loadPrivacyCenterEnvironment =
         process.env.FIDES_PRIVACY_CENTER__SERVER_SIDE_FIDES_API_URL || null,
       CONFIG_JSON_URL:
         process.env.FIDES_PRIVACY_CENTER__CONFIG_JSON_URL ||
-        "file:///app/config/config.json",
+        "file:///privacy-center/app/config/config.json",
       CONFIG_CSS_URL:
         process.env.FIDES_PRIVACY_CENTER__CONFIG_CSS_URL ||
-        "file:///app/config/config.css",
+        "file:///privacy-center/app/config/config.css",
 
       // Overlay options
       DEBUG: process.env.FIDES_PRIVACY_CENTER__DEBUG
