@@ -238,12 +238,14 @@ export const validateConfig = (
 export const loadConfigFromFile = async (
   configJsonUrl?: string
 ): Promise<Config | undefined> => {
+  console.log({ filename: __filename });
   const urls = [
     configJsonUrl,
     "file:///app/config/config.json",
-    "file:///privacy-center/app/config/config.json",
-    "file:///clients/privacy-center/app/config/config.json",
+    "file:///privacy-center/config/config.json",
+    "file:///clients/privacy-center/config/config.json",
     "file:./config/config.json",
+    "file:../config/config.json",
   ];
   const file = await loadConfigFile(urls);
   if (file) {
