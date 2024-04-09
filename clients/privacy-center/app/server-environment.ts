@@ -249,6 +249,28 @@ export const loadConfigFromFile = async (
   return config;
 };
 
+const rawStyles = () => `:root:root {
+  /* Background color */
+  --chakra-colors-gray-50: #ffffff;
+  /* Header & highlight color */
+  --chakra-colors-gray-100: #000000;
+  /* Modal text color */
+  --chakra-colors-gray-500: #282d32;
+  /* Body text color */
+  --chakra-colors-gray-600: #282d32;
+  /* Primary button hover color */
+  --chakra-colors-primary-400: #464b83;
+  /* Primary button color */
+  white-space: pre-line;
+  --chakra-colors-primary-800: #111439;
+  overflow: hidden;
+}
+
+iframe {
+  height: 100vh;
+  width: 100vw;
+}`;
+
 /**
  * Load the config.css file from the given URL, or fallback to default filesystem paths.
  *
@@ -264,13 +286,13 @@ export const loadConfigFromFile = async (
 export const loadStylesFromFile = async (
   configCssUrl?: string
 ): Promise<string | undefined> => {
-  const urls = [
-    configCssUrl,
-    "file:///app/config/config.css",
-    "file:./config/config.css",
-  ];
-  const file = await loadConfigFile(urls);
-  return file;
+  // const urls = [
+  //   configCssUrl,
+  //   "file:///app/config/config.css",
+  //   "file:./config/config.css",
+  // ];
+  // const file = await loadConfigFile(urls);
+  return rawStyles();
 };
 
 /**
