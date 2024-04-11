@@ -185,11 +185,23 @@ export default async function handler(
     );
   }
 
-  const path = `${process.cwd()}/public/lib`;
+  console.log({ current_path: process.cwd() });
 
-  const contents = await fsPromises.readdir(path);
+  try {
+    const publicContents = await fsPromises.readdir(
+      "/var/task/privacy-center/public/lib"
+    );
+    console.log({ public: publicContents });
+  } catch (e) {
+    console.log({ publicE: e });
+  }
 
-  console.log({ current_path: process.cwd(), contents });
+  try {
+    const lib = await fsPromises.readdir("/var/task/privacy-center/public/lib");
+    console.log({ lib });
+  } catch (e) {
+    console.log({ libE: e });
+  }
 
   const fidesJsFile = tcfEnabled
     ? "/var/task/privacy-center/public/lib/fides-tcf.js"
