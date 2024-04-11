@@ -1,14 +1,14 @@
 import {
+  ConnectionConfigurationResponse,
+  ConnectionSystemTypeMap,
   ConnectionType,
   DatasetConfigCtlDataset,
   SystemType,
 } from "~/types/api";
 
 import {
-  AccessLevel,
   ConnectionTestStatus,
   DisabledStatus,
-  SaasType,
   TestingStatus,
 } from "./constants";
 
@@ -71,18 +71,9 @@ export type Dataset = {
     [key: string]: string;
   };
   data_categories: string[];
-  data_qualifier: string;
   fidesctl_meta: {
     resource_id: string;
   };
-  joint_controller: {
-    name: string;
-    address: string;
-    email: string;
-    phone: string;
-  };
-  retention: string;
-  third_country_transfers: string[];
   collections: DatasetCollection[];
   fidesops_meta: {
     after: string[];
@@ -93,8 +84,6 @@ export type DatasetCollection = {
   name: string;
   description: string;
   data_categories: string[];
-  data_qualifier: string;
-  retention: string;
   fields: DatasetCollectionField[];
 };
 
@@ -102,8 +91,6 @@ export type DatasetCollectionField = {
   name: string;
   description: string;
   data_categories: string[];
-  data_qualifier: string;
-  retention: string;
   fidesops_meta: {
     references: FidesOpsMetaReference[];
     identity: string;
@@ -132,7 +119,7 @@ export type DatastoreConnectionRequest = {
 };
 
 export type DatastoreConnectionResponse = {
-  succeeded: DatastoreConnection[];
+  succeeded: ConnectionConfigurationResponse[];
   failed: [
     {
       message: string;
@@ -141,22 +128,15 @@ export type DatastoreConnectionResponse = {
   ];
 };
 
-export type DatastoreConnection = {
-  name: string;
-  key: string;
-  description?: string;
-  disabled: boolean;
-  connection_type: ConnectionType;
-  access: AccessLevel;
-  created_at: string;
-  updated_at?: string;
-  last_test_timestamp: string;
-  last_test_succeeded: boolean;
-  saas_config?: SaasConfig;
-};
+export const isDatastoreConnection = (
+  obj: any
+): obj is ConnectionConfigurationResponse =>
+  (obj as ConnectionConfigurationResponse).connection_type !== undefined;
 
-export const isDatastoreConnection = (obj: any): obj is DatastoreConnection =>
-  (obj as DatastoreConnection).connection_type !== undefined;
+export const isConnectionSystemTypeMap = (
+  obj: any
+): obj is ConnectionSystemTypeMap =>
+  (obj as ConnectionSystemTypeMap).encoded_icon !== undefined;
 
 export type DatastoreConnectionParams = {
   search: string;
@@ -164,12 +144,13 @@ export type DatastoreConnectionParams = {
   test_status?: TestingStatus;
   system_type?: SystemType;
   disabled_status?: DisabledStatus;
+  orphaned_from_system?: boolean;
   page: number;
   size: number;
 };
 
 export type DatastoreConnectionsResponse = {
-  items: DatastoreConnection[];
+  items: ConnectionConfigurationResponse[];
   total: number;
   page: number;
   size: number;
@@ -194,32 +175,18 @@ export type DatastoreConnectionStatus = {
   failure_reason?: string;
 };
 
-export type DatastoreConnectionUpdate = {
-  name: string;
-  key: string;
-  disabled: boolean;
-  connection_type: ConnectionType;
-  access: AccessLevel;
-};
-
-export type SaasConfig = {
-  fides_key: string;
-  name: string;
-  type: SaasType;
-};
-
-export type CreateSassConnectionConfigRequest = {
+export type CreateSaasConnectionConfigRequest = {
   name: string;
   description: string;
   instance_key: string;
-  saas_connector_type: SaasType;
+  saas_connector_type: string;
   secrets: {
     [key: string]: any;
   };
 };
 
-export type CreateSassConnectionConfigResponse = {
-  connection: DatastoreConnection;
+export type CreateSaasConnectionConfigResponse = {
+  connection: ConnectionConfigurationResponse;
   dataset: {
     fides_key: string;
   };

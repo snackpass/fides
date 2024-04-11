@@ -9,12 +9,12 @@ from click.testing import CliRunner
 from git.repo import Repo
 from py._path.local import LocalPath
 
-from fides.api.ops.api.v1.scope_registry import SCOPE_REGISTRY
+from fides.api.oauth.roles import OWNER, VIEWER
 from fides.cli import cli
-from fides.core.config import CONFIG
-from fides.core.user import get_user_permissions
+from fides.common.api.scope_registry import SCOPE_REGISTRY
+from fides.config import CONFIG
+from fides.core.user import get_systems_managed_by_user, get_user_permissions
 from fides.core.utils import get_auth_header, read_credentials_file
-from fides.lib.oauth.roles import ADMIN
 
 OKTA_URL = "https://dev-78908748.okta.com"
 
@@ -41,13 +41,42 @@ def test_init(test_cli_runner: CliRunner) -> None:
     assert result.exit_code == 0
 
 
-@pytest.mark.unit
-def test_view_config(test_cli_runner: CliRunner) -> None:
+@pytest.mark.integration
+def test_init_opt_in(test_cli_runner: CliRunner) -> None:
     result = test_cli_runner.invoke(
-        cli, ["view", "config"], env={"FIDES__USER__ANALYTICS_OPT_OUT": "true"}
+        cli,
+        ["init", "--opt-in"],
     )
     print(result.output)
     assert result.exit_code == 0
+
+
+@pytest.mark.unit
+def test_local_flag_invalid_command(test_cli_runner: CliRunner) -> None:
+    result = test_cli_runner.invoke(
+        cli,
+        ["--local", "push"],
+    )
+    print(result.output)
+    assert result.exit_code == 1
+
+
+class TestView:
+    @pytest.mark.unit
+    def test_view_config(self, test_cli_runner: CliRunner) -> None:
+        result = test_cli_runner.invoke(
+            cli, ["view", "config"], env={"FIDES__USER__ANALYTICS_OPT_OUT": "true"}
+        )
+        print(result.output)
+        assert result.exit_code == 0
+
+    @pytest.mark.unit
+    def test_view_credentials(self, test_cli_runner: CliRunner) -> None:
+        result = test_cli_runner.invoke(
+            cli, ["view", "credentials"], env={"FIDES__USER__ANALYTICS_OPT_OUT": "true"}
+        )
+        print(result.output)
+        assert result.exit_code == 0
 
 
 @pytest.mark.unit
@@ -67,7 +96,7 @@ def test_worker() -> None:
     This is specifically meant to catch when the worker command breaks,
     without spinning up an additional instance.
     """
-    from fides.api.ops.worker import start_worker  # pylint: disable=unused-import
+    from fides.api.worker import start_worker  # pylint: disable=unused-import
 
     assert True
 
@@ -93,6 +122,14 @@ class TestDB:
     @pytest.mark.integration
     def test_init_db(self, test_config_path: str, test_cli_runner: CliRunner) -> None:
         result = test_cli_runner.invoke(cli, ["-f", test_config_path, "db", "init"])
+        print(result.output)
+        assert result.exit_code == 0
+
+    @pytest.mark.integration
+    def test_upgrade_db(
+        self, test_config_path: str, test_cli_runner: CliRunner
+    ) -> None:
+        result = test_cli_runner.invoke(cli, ["-f", test_config_path, "db", "upgrade"])
         print(result.output)
         assert result.exit_code == 0
 
@@ -187,8 +224,8 @@ def test_audit(test_config_path: str, test_cli_runner: CliRunner) -> None:
     assert result.exit_code == 0
 
 
+@pytest.mark.integration
 class TestCRUD:
-    @pytest.mark.integration
     def test_get(self, test_config_path: str, test_cli_runner: CliRunner) -> None:
         result = test_cli_runner.invoke(
             cli,
@@ -197,8 +234,32 @@ class TestCRUD:
         print(result.output)
         assert result.exit_code == 0
 
-    @pytest.mark.integration
+    def test_delete(self, test_config_path: str, test_cli_runner: CliRunner) -> None:
+        result = test_cli_runner.invoke(
+            cli,
+            ["-f", test_config_path, "delete", "system", "demo_marketing_system"],
+        )
+        print(result.output)
+        assert result.exit_code == 0
+
     def test_ls(self, test_config_path: str, test_cli_runner: CliRunner) -> None:
+        result = test_cli_runner.invoke(cli, ["-f", test_config_path, "ls", "system"])
+        print(result.output)
+        assert result.exit_code == 0
+
+    def test_ls_verbose(
+        self, test_config_path: str, test_cli_runner: CliRunner
+    ) -> None:
+        result = test_cli_runner.invoke(
+            cli, ["-f", test_config_path, "ls", "system", "--verbose"]
+        )
+        print(result.output)
+        assert result.exit_code == 0
+
+    def test_ls_no_resources_found(
+        self, test_config_path: str, test_cli_runner: CliRunner
+    ) -> None:
+        """This test only works because we don't have any system resources by default."""
         result = test_cli_runner.invoke(cli, ["-f", test_config_path, "ls", "system"])
         print(result.output)
         assert result.exit_code == 0
@@ -370,32 +431,6 @@ class TestEvaluate:
         assert result.exit_code == 1
 
 
-@pytest.mark.integration
-@pytest.mark.parametrize(
-    "export_resource", ["system", "dataset", "organization", "datamap"]
-)
-def test_export_resources(
-    test_config_path: str,
-    test_cli_runner: CliRunner,
-    export_resource: str,
-) -> None:
-    """
-    Tests that each resource is successfully exported
-    """
-
-    result = test_cli_runner.invoke(
-        cli,
-        [
-            "-f",
-            test_config_path,
-            "export",
-            export_resource,
-            "--dry",
-        ],
-    )
-    assert result.exit_code == 0
-
-
 class TestScan:
     @pytest.mark.integration
     def test_scan_dataset_db_input_connection_string(
@@ -427,6 +462,28 @@ class TestScan:
             [
                 "-f",
                 test_config_path,
+                "scan",
+                "dataset",
+                "db",
+                "--credentials-id",
+                "postgres_1",
+                "--coverage-threshold",
+                "0",
+            ],
+        )
+        print(result.output)
+        assert result.exit_code == 0
+
+    @pytest.mark.integration
+    def test_scan_dataset_db_local_flag(
+        self, test_config_path: str, test_cli_runner: CliRunner
+    ) -> None:
+        result = test_cli_runner.invoke(
+            cli,
+            [
+                "-f",
+                test_config_path,
+                "--local",
                 "scan",
                 "dataset",
                 "db",
@@ -782,7 +839,6 @@ class TestGenerate:
         test_cli_runner: CliRunner,
         tmpdir: LocalPath,
     ) -> None:
-
         tmp_output_file = tmpdir.join("dataset.yml")
         config_data = os.getenv("BIGQUERY_CONFIG", "e30=")
         config_data_decoded = loads(
@@ -832,7 +888,6 @@ class TestGenerate:
         test_cli_runner: CliRunner,
         tmpdir: LocalPath,
     ) -> None:
-
         tmp_output_file = tmpdir.join("dataset.yml")
         tmp_keyfile = tmpdir.join("bigquery.json")
         config_data = os.getenv("BIGQUERY_CONFIG", "e30=")
@@ -868,6 +923,7 @@ def credentials_path(tmp_path_factory) -> str:
     return str(credentials_path)
 
 
+@pytest.mark.integration
 class TestUser:
     """
     Test the "user" command group.
@@ -875,7 +931,6 @@ class TestUser:
     Most tests rely on previous tests.
     """
 
-    @pytest.mark.unit
     def test_user_login_provide_credentials(
         self, test_config_path: str, test_cli_runner: CliRunner, credentials_path: str
     ) -> None:
@@ -898,7 +953,75 @@ class TestUser:
         print(result.output)
         assert result.exit_code == 0
 
-    @pytest.mark.unit
+    def test_user_login_env_var_failed(
+        self, test_config_path: str, test_cli_runner: CliRunner, credentials_path: str
+    ) -> None:
+        """
+        Test logging in as a user with a provided username and password
+        provided via env vars, but the username is invalid.
+        """
+        print(credentials_path)
+        result = test_cli_runner.invoke(
+            cli,
+            [
+                "-f",
+                test_config_path,
+                "user",
+                "login",
+            ],
+            env={
+                "FIDES_CREDENTIALS_PATH": credentials_path,
+                "FIDES__USER__USERNAME": "fakeuser",
+                "FIDES__USER__PASSWORD": "Testpassword1!",
+            },
+        )
+        print(result.output)
+        assert result.exit_code == 1
+
+    def test_user_login_env_var_password(
+        self, test_config_path: str, test_cli_runner: CliRunner, credentials_path: str
+    ) -> None:
+        """
+        Test logging in as a user with a provided username but password
+        provided via env vars.
+        """
+        print(credentials_path)
+        result = test_cli_runner.invoke(
+            cli,
+            ["-f", test_config_path, "user", "login", "-u", "root_user"],
+            env={
+                "FIDES_CREDENTIALS_PATH": credentials_path,
+                "FIDES__USER__PASSWORD": "Testpassword1!",
+            },
+        )
+        print(result.output)
+        assert result.exit_code == 0
+
+    def test_user_login_env_var_credentials(
+        self, test_config_path: str, test_cli_runner: CliRunner, credentials_path: str
+    ) -> None:
+        """
+        Test logging in as a user with a provided username and password
+        provided via env vars.
+        """
+        print(credentials_path)
+        result = test_cli_runner.invoke(
+            cli,
+            [
+                "-f",
+                test_config_path,
+                "user",
+                "login",
+            ],
+            env={
+                "FIDES_CREDENTIALS_PATH": credentials_path,
+                "FIDES__USER__USERNAME": "root_user",
+                "FIDES__USER__PASSWORD": "Testpassword1!",
+            },
+        )
+        print(result.output)
+        assert result.exit_code == 0
+
     def test_user_create(
         self, test_config_path: str, test_cli_runner: CliRunner, credentials_path: str
     ) -> None:
@@ -911,9 +1034,7 @@ class TestUser:
                 test_config_path,
                 "user",
                 "create",
-                "-u",
                 "newuser",
-                "-p",
                 "Newpassword1!",
             ],
             env={"FIDES_CREDENTIALS_PATH": credentials_path},
@@ -937,13 +1058,12 @@ class TestUser:
         )
 
         credentials = read_credentials_file(credentials_path)
-        scopes, roles = get_user_permissions(
+        total_scopes, roles = get_user_permissions(
             credentials.user_id, get_auth_header(), CONFIG.cli.server_url
         )
-        assert scopes == SCOPE_REGISTRY
-        assert roles == [ADMIN]
+        assert set(total_scopes) == set(SCOPE_REGISTRY)
+        assert roles == [OWNER]
 
-    @pytest.mark.unit
     def test_user_permissions_valid(
         self, test_config_path: str, test_cli_runner: CliRunner, credentials_path: str
     ) -> None:
@@ -957,8 +1077,7 @@ class TestUser:
         print(result.output)
         assert result.exit_code == 0
 
-    @pytest.mark.unit
-    def test_get_user_permissions(
+    def test_get_self_user_permissions(
         self, test_config_path, test_cli_runner, credentials_path
     ) -> None:
         """Test getting user permissions"""
@@ -976,15 +1095,72 @@ class TestUser:
             ],
             env={"FIDES_CREDENTIALS_PATH": credentials_path},
         )
-        scopes, roles = get_user_permissions(
+        total_scopes, roles = get_user_permissions(
             CONFIG.security.oauth_root_client_id,
             get_auth_header(),
             CONFIG.cli.server_url,
         )
-        assert scopes == SCOPE_REGISTRY
-        assert roles == [ADMIN]
+        assert set(total_scopes) == set(SCOPE_REGISTRY)
+        assert roles == [OWNER]
 
     @pytest.mark.unit
+    def test_get_self_user_systems(
+        self, test_config_path, test_cli_runner, credentials_path
+    ) -> None:
+        """Test getting user permissions"""
+        test_cli_runner.invoke(
+            cli,
+            [
+                "-f",
+                test_config_path,
+                "user",
+                "login",
+                "-u",
+                "root_user",
+                "-p",
+                "Testpassword1!",
+            ],
+            env={"FIDES_CREDENTIALS_PATH": credentials_path},
+        )
+        systems = get_systems_managed_by_user(
+            CONFIG.security.oauth_root_client_id,
+            get_auth_header(),
+            CONFIG.cli.server_url,
+        )
+        assert systems == []
+
+    def test_get_other_user_perms_and_systems(
+        self, test_config_path, test_cli_runner, credentials_path, system_manager
+    ) -> None:
+        """Test getting another user's permissions and systems"""
+        test_cli_runner.invoke(
+            cli,
+            [
+                "-f",
+                test_config_path,
+                "user",
+                "login",
+                "-u",
+                "root_user",
+                "-p",
+                "Testpassword1!",
+            ],
+            env={"FIDES_CREDENTIALS_PATH": credentials_path},
+        )
+        total_scopes, roles = get_user_permissions(
+            system_manager.id,
+            get_auth_header(),
+            CONFIG.cli.server_url,
+        )
+        assert roles == [VIEWER]
+
+        systems = get_systems_managed_by_user(
+            system_manager.id,
+            get_auth_header(),
+            CONFIG.cli.server_url,
+        )
+        assert systems == [system_manager.systems[0].fides_key]
+
     def test_user_permissions_not_found(
         self, test_config_path: str, test_cli_runner: CliRunner, credentials_path: str
     ) -> None:

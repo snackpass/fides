@@ -1,11 +1,12 @@
 import {
   Page_UserResponse_,
+  ScopeRegistryEnum,
   UserCreate,
   UserCreateResponse,
   UserPasswordReset,
   UserPermissionsCreate,
   UserPermissionsEdit,
-  UserPermissionsResponse,
+  UserPermissionsPlusResponse,
   UserResponse,
   UserUpdate,
 } from "~/types/api";
@@ -15,7 +16,7 @@ export type {
   UserCreate,
   UserCreateResponse,
   UserPermissionsCreate,
-  UserPermissionsResponse,
+  UserPermissionsPlusResponse,
   UserResponse,
   UserUpdate,
 };
@@ -24,7 +25,7 @@ export interface UsersResponse extends Page_UserResponse_ {}
 
 export interface User extends UserResponse {}
 
-export interface UserPermissions extends UserPermissionsResponse {}
+export interface UserPermissions extends UserPermissionsPlusResponse {}
 
 export interface UserUpdateParams extends UserUpdate {
   id: string;
@@ -43,10 +44,10 @@ export interface UserPasswordResetParams extends UserPasswordReset {
 export interface UserPermissionsEditParams {
   // This is the Id of the User, not the the Id field of the UserPermissions model.
   user_id: string;
-  scopes: UserPermissionsEdit["scopes"];
+  payload: UserPermissionsEdit;
 }
 
 export interface UserPrivileges {
   privilege: string;
-  scope: string;
+  scope: ScopeRegistryEnum;
 }

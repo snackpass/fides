@@ -1,6 +1,9 @@
 import { ReactNode, useState } from "react";
 
-import { CustomFieldsList } from "~/features/common/custom-fields";
+import {
+  CustomFieldsList,
+  CustomFieldValues,
+} from "~/features/common/custom-fields";
 import { useCustomFields } from "~/features/common/custom-fields/hooks";
 import { RTKResult } from "~/features/common/types";
 import {
@@ -9,18 +12,11 @@ import {
   DataSubjectRightsEnum,
   DataUse,
   IncludeExcludeEnum,
-  LegalBasisEnum,
   ResourceTypes,
-  SpecialCategoriesEnum,
 } from "~/types/api";
 
 import { YesNoOptions } from "../common/constants";
-import {
-  CustomCreatableSelect,
-  CustomRadioGroup,
-  CustomSelect,
-  CustomTextInput,
-} from "../common/form/inputs";
+import { CustomRadioGroup, CustomSelect } from "../common/form/inputs";
 import { enumToOptions } from "../common/helpers";
 import {
   useCreateDataSubjectMutation,
@@ -59,18 +55,39 @@ export interface TaxonomyHookData<T extends TaxonomyEntity> {
     newValues: FormValues
   ) => RTKResult<TaxonomyEntity>;
   handleDelete: (key: string) => RTKResult<string>;
+  handleToggleEnabled: (
+    entity: TaxonomyEntity,
+    isDisabled: boolean
+  ) => RTKResult<TaxonomyEntity>;
   renderExtraFormFields?: (entity: T) => ReactNode;
   transformEntityToInitialValues: (entity: T) => FormValues;
 }
 
-const transformTaxonomyBaseToInitialValues = (t: TaxonomyEntity) => ({
+/**
+ * Transforms the attributes that are shared between taxonomy entities into values
+ * that Formik can easily handle.
+ * If the taxonomy entity has additional fields that need to be transformed,
+ * it should extend from this function.
+ */
+const transformTaxonomyBaseToInitialValues = (
+  t: TaxonomyEntity,
+  customFieldValues?: CustomFieldValues
+) => ({
   fides_key: t.fides_key ?? "",
   name: t.name ?? "",
   description: t.description ?? "",
   parent_key: t.parent_key ?? "",
   is_default: t.is_default ?? false,
+  version_added: t.version_added ?? undefined,
+  version_deprecated: t.version_deprecated ?? undefined,
+  replaced_by: t.replaced_by ?? undefined,
+  customFieldValues,
 });
 
+/**
+ * Transforms the attributes that are shared between taxonomy entities into
+ * a taxonomy object ready to be consumed by the API
+ */
 const transformBaseFormValuesToEntity = (
   initialValues: FormValues,
   newValues: FormValues
@@ -89,7 +106,7 @@ const transformBaseFormValuesToEntity = (
     entity.fides_key = initialValues.fides_key;
   }
 
-  delete entity.definitionIdToCustomFieldValue;
+  delete entity.customFieldValues;
 
   return entity;
 };
@@ -146,12 +163,32 @@ export const useDataCategory = (): TaxonomyHookData<DataCategory> => {
 
   const handleDelete = deleteDataCategoryMutationTrigger;
 
+  const handleToggleEnabled = async (
+    entity: TaxonomyEntity,
+    isDisabled: boolean
+  ) => {
+    const payload = {
+      ...entity,
+      active: isDisabled,
+    };
+
+    const result = updateDataCategoryMutationTrigger(payload);
+
+    return result;
+  };
+
   const renderExtraFormFields = (formValues: FormValues) => (
     <CustomFieldsList
       resourceFidesKey={formValues.fides_key}
       resourceType={resourceType}
     />
   );
+
+  const transformEntityToInitialValues = (entity: DataCategory) =>
+    transformTaxonomyBaseToInitialValues(
+      entity,
+      customFields.customFieldValues
+    );
 
   return {
     data,
@@ -163,8 +200,9 @@ export const useDataCategory = (): TaxonomyHookData<DataCategory> => {
     handleCreate,
     handleEdit,
     handleDelete,
+    handleToggleEnabled,
     renderExtraFormFields,
-    transformEntityToInitialValues: transformTaxonomyBaseToInitialValues,
+    transformEntityToInitialValues,
   };
 };
 
@@ -179,12 +217,6 @@ export const useDataUse = (): TaxonomyHookData<DataUse> => {
     name: "Data use name",
     description: "Data use description",
     parent_key: "Parent data use",
-    legal_basis: "Legal basis",
-    special_category: "Special category",
-    recipient: "Recipient",
-    legitimate_interest: "Legitimate interest",
-    legitimate_interest_impact_assessment:
-      "Legitimate interest impact assessment",
   };
 
   const [createDataUseMutationTrigger] = useCreateDataUseMutation();
@@ -193,23 +225,6 @@ export const useDataUse = (): TaxonomyHookData<DataUse> => {
 
   const transformFormValuesToEntity = (formValues: DataUse) => ({
     ...formValues,
-    // text inputs don't like having undefined, so we originally converted
-    // to "", but on submission we need to convert back to undefined
-    legitimate_interest_impact_assessment:
-      formValues.legitimate_interest_impact_assessment === ""
-        ? undefined
-        : formValues.legitimate_interest_impact_assessment,
-    legitimate_interest: !!(
-      formValues.legitimate_interest?.toString() === "true"
-    ),
-    legal_basis:
-      formValues.legal_basis?.toString() === ""
-        ? undefined
-        : formValues.legal_basis,
-    special_category:
-      formValues.special_category?.toString() === ""
-        ? undefined
-        : formValues.special_category,
   });
 
   const customFields = useCustomFields({
@@ -252,62 +267,38 @@ export const useDataUse = (): TaxonomyHookData<DataUse> => {
   const handleDelete = deleteDataUseMutationTrigger;
 
   const transformEntityToInitialValues = (du: DataUse) => {
-    const base = transformTaxonomyBaseToInitialValues(du);
+    const base = transformTaxonomyBaseToInitialValues(
+      du,
+      customFields.customFieldValues
+    );
     return {
       ...base,
-      legal_basis: du.legal_basis,
-      special_category: du.special_category,
-      recipients: du.recipients ?? [],
-      legitimate_interest:
-        du.legitimate_interest == null
-          ? "false"
-          : du.legitimate_interest.toString(),
-      legitimate_interest_impact_assessment:
-        du.legitimate_interest_impact_assessment ?? "",
     };
   };
 
-  const legalBases = enumToOptions(LegalBasisEnum);
-  const specialCategories = enumToOptions(SpecialCategoriesEnum);
+  const handleToggleEnabled = async (
+    entity: TaxonomyEntity,
+    isDisabled: boolean
+  ) => {
+    const payload = {
+      ...entity,
+      active: isDisabled,
+    };
+
+    const result = updateDataUseMutationTrigger(payload);
+
+    if (customFields.isEnabled) {
+      await customFields.upsertCustomFields(payload);
+    }
+
+    return result;
+  };
 
   const renderExtraFormFields = (formValues: DataUse) => (
-    <>
-      <CustomSelect
-        name="legal_basis"
-        label={labels.legal_basis}
-        options={legalBases}
-        isClearable
-      />
-      <CustomSelect
-        name="special_category"
-        label={labels.special_category}
-        options={specialCategories}
-        isClearable
-      />
-      <CustomCreatableSelect
-        name="recipients"
-        label={labels.recipient}
-        options={[]}
-        size="sm"
-        disableMenu
-        isMulti
-      />
-      <CustomRadioGroup
-        name="legitimate_interest"
-        label={labels.legitimate_interest}
-        options={YesNoOptions}
-      />
-      {formValues.legitimate_interest?.toString() === "true" ? (
-        <CustomTextInput
-          name="legitimate_interest_impact_assessment"
-          label={labels.legitimate_interest_impact_assessment}
-        />
-      ) : null}
-      <CustomFieldsList
-        resourceFidesKey={formValues.fides_key}
-        resourceType={resourceType}
-      />
-    </>
+    <CustomFieldsList
+      resourceFidesKey={formValues.fides_key}
+      resourceType={resourceType}
+    />
   );
 
   return {
@@ -320,6 +311,7 @@ export const useDataUse = (): TaxonomyHookData<DataUse> => {
     handleCreate,
     handleEdit,
     handleDelete,
+    handleToggleEnabled,
     renderExtraFormFields,
     transformEntityToInitialValues,
   };
@@ -407,7 +399,10 @@ export const useDataSubject = (): TaxonomyHookData<DataSubject> => {
   const handleDelete = deleteDataSubjectMutationTrigger;
 
   const transformEntityToInitialValues = (ds: DataSubject) => {
-    const base = transformTaxonomyBaseToInitialValues(ds);
+    const base = transformTaxonomyBaseToInitialValues(
+      ds,
+      customFields.customFieldValues
+    );
     return {
       ...base,
       rights: ds.rights?.values ?? [],
@@ -417,6 +412,24 @@ export const useDataSubject = (): TaxonomyHookData<DataSubject> => {
           ? "false"
           : ds.automated_decisions_or_profiling.toString(),
     };
+  };
+
+  const handleToggleEnabled = async (
+    entity: TaxonomyEntity,
+    isDisabled: boolean
+  ) => {
+    const payload = {
+      ...entity,
+      active: isDisabled,
+    };
+
+    const result = updateDataSubjectMutationTrigger(payload);
+
+    if (customFields.isEnabled) {
+      await customFields.upsertCustomFields(payload);
+    }
+
+    return result;
   };
 
   const renderExtraFormFields = (entity: DataSubject) => (
@@ -457,6 +470,7 @@ export const useDataSubject = (): TaxonomyHookData<DataSubject> => {
     handleCreate,
     handleEdit,
     handleDelete,
+    handleToggleEnabled,
     renderExtraFormFields,
     transformEntityToInitialValues,
   };

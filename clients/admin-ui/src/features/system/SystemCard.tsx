@@ -11,10 +11,12 @@ import {
   useDisclosure,
   useToast,
 } from "@fidesui/react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 
 import { useAppDispatch } from "~/app/hooks";
-import ConfirmationModal from "~/features/common/ConfirmationModal";
+import ConfirmationModal from "~/features/common/modals/ConfirmationModal";
+import { SYSTEM_ROUTE } from "~/features/common/nav/v2/routes";
 import { System } from "~/types/api";
 
 import { getErrorMessage, isErrorResult } from "../common/helpers";
@@ -38,7 +40,7 @@ const SystemCard = ({ system }: SystemCardProps) => {
 
   const handleEdit = () => {
     dispatch(setActiveSystem(system));
-    router.push("/system/configure");
+    router.push(`${SYSTEM_ROUTE}/configure/${system.fides_key}`);
   };
 
   const handleDelete = async () => {
@@ -56,14 +58,21 @@ const SystemCard = ({ system }: SystemCardProps) => {
 
   return (
     <Box display="flex" data-testid={`system-${system.fides_key}`}>
-      <Box flexGrow={1} p={4}>
-        <Heading as="h2" fontSize="16px" mb={2}>
-          {systemName}
-        </Heading>
-        <Box color="gray.600" fontSize="14px">
-          <Text>{system.description}</Text>
+      <Link href={`${SYSTEM_ROUTE}/configure/${system.fides_key}`} passHref>
+        <Box
+          flexGrow={1}
+          p={4}
+          data-testid="system-box"
+          _hover={{ cursor: "pointer" }}
+        >
+          <Heading as="h2" fontSize="16px" mb={2}>
+            {systemName}
+          </Heading>
+          <Box color="gray.600" fontSize="14px">
+            <Text>{system.description}</Text>
+          </Box>
         </Box>
-      </Box>
+      </Link>
       <Menu>
         <MenuButton
           as={IconButton}

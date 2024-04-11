@@ -3,6 +3,8 @@ import PaginationFooter from "common/PaginationFooter";
 import React from "react";
 import { useDispatch } from "react-redux";
 
+import { ConnectionConfigurationResponse } from "~/types/api";
+
 import { useAppSelector } from "../../app/hooks";
 import classes from "./ConnectionGrid.module.css";
 import ConnectionGridItem from "./ConnectionGridItem";
@@ -10,7 +12,6 @@ import {
   selectDatastoreConnectionFilters,
   setPage,
 } from "./datastore-connection.slice";
-import { DatastoreConnection } from "./types";
 
 const useConnectionGrid = () => {
   const dispatch = useDispatch();
@@ -32,7 +33,7 @@ const useConnectionGrid = () => {
 };
 
 type ConnectionGridProps = {
-  items: DatastoreConnection[];
+  items: ConnectionConfigurationResponse[];
   total: number;
 };
 
@@ -57,6 +58,7 @@ const ConnectionGrid: React.FC<ConnectionGridProps> = ({
               ? "0.5px"
               : undefined
           }
+          data-testid="connection-grid"
         >
           <SimpleGrid columns={columns}>
             {parent.map((child) => (

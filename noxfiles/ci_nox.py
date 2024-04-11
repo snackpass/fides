@@ -3,6 +3,7 @@ from functools import partial
 from typing import Callable, Dict
 
 import nox
+from nox.command import CommandFailed
 
 from constants_nox import (
     CONTAINER_NAME,
@@ -12,7 +13,7 @@ from constants_nox import (
     START_APP,
     WITH_TEST_CONFIG,
 )
-from test_setup_nox import pytest_ctl, pytest_lib, pytest_ops
+from setup_tests_nox import pytest_ctl, pytest_lib, pytest_nox, pytest_ops
 from utils_nox import install_requirements
 
 
@@ -75,7 +76,7 @@ def mypy(session: nox.Session) -> None:
 def pylint(session: nox.Session) -> None:
     """Run the 'pylint' code linter."""
     install_requirements(session)
-    command = ("pylint", "src", "noxfiles", "noxfile.py")
+    command = ("pylint", "src", "noxfiles", "noxfile.py", "--jobs", "0")
     session.run(*command)
 
 
@@ -153,6 +154,49 @@ def fides_db_scan(session: nox.Session) -> None:
 
 
 @nox.session()
+def check_container_startup(session: nox.Session) -> None:
+    """
+    Start the containers in `wait` mode. If container startup fails, show logs.
+    """
+    throw_error = False
+    start_command = (
+        "docker",
+        "compose",
+        "up",
+        "--wait",
+        IMAGE_NAME,
+    )
+    healthcheck_logs_command = (
+        "docker",
+        "inspect",
+        "--format",
+        '"{{json .State.Health }}"',
+        IMAGE_NAME,
+    )
+    startup_logs_command = (
+        "docker",
+        "logs",
+        "--tail",
+        "50",
+        IMAGE_NAME,
+    )
+    try:
+        session.run(*start_command, external=True)
+    except CommandFailed:
+        throw_error = True
+
+    # We want to see the logs regardless of pass/failure, just in case
+    log_dashes = "*" * 20
+    session.log(f"{log_dashes} Healthcheck Logs {log_dashes}")
+    session.run(*healthcheck_logs_command, external=True)
+    session.log(f"{log_dashes} Startup Logs {log_dashes}")
+    session.run(*startup_logs_command, external=True)
+
+    if throw_error:
+        session.error("Container startup failed")
+
+
+@nox.session()
 def minimal_config_startup(session: nox.Session) -> None:
     """
     Check that the server can start successfully with a minimal
@@ -167,10 +211,55 @@ def minimal_config_startup(session: nox.Session) -> None:
         compose_file,
         "up",
         "--wait",
-        "-d",
         IMAGE_NAME,
     )
     session.run(*start_command, external=True)
+
+
+#################
+## Performance ##
+#################
+@nox.session()
+def performance_tests(session: nox.Session) -> None:
+    """Compose the various performance checks into a single uber-test."""
+    session.notify("teardown")
+    session.run(*START_APP, external=True, silent=True)
+    samples = 2
+    for i in range(samples):
+        session.log(f"Sample {i + 1} of {samples}")
+        load_tests(session)
+        docker_stats(session)
+
+
+@nox.session()
+def docker_stats(session: nox.Session) -> None:
+    """
+    Use the builtin `docker stats` command to show resource usage.
+
+    Run this _last_ to get a better worst-case scenario
+    """
+    session.run(
+        "docker",
+        "stats",
+        "--no-stream",
+        "--format",
+        "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}",
+        external=True,
+    )
+
+
+@nox.session()
+def load_tests(session: nox.Session) -> None:
+    """
+    Load test the application.
+
+    Requires a Rust/Cargo installation and then `cargo install drill`
+
+    https://github.com/fcsonline/drill
+    """
+    session.run(
+        "drill", "-b", "noxfiles/drill.yml", "--quiet", "--stats", external=True
+    )
 
 
 ############
@@ -186,6 +275,7 @@ TEST_GROUPS = [
     nox.param("ops-external-datastores", id="ops-external-datastores"),
     nox.param("ops-saas", id="ops-saas"),
     nox.param("lib", id="lib"),
+    nox.param("nox", id="nox"),
 ]
 
 TEST_MATRIX: Dict[str, Callable] = {
@@ -198,6 +288,7 @@ TEST_MATRIX: Dict[str, Callable] = {
     "ops-external-datastores": partial(pytest_ops, mark="external_datastores"),
     "ops-saas": partial(pytest_ops, mark="saas"),
     "lib": pytest_lib,
+    "nox": pytest_nox,
 }
 
 
@@ -221,7 +312,7 @@ def collect_tests(session: nox.Session) -> None:
     errors within the test code.
     """
     session.install(".")
-    install_requirements(session)
+    install_requirements(session, True)
     command = ("pytest", "tests/", "--collect-only")
     session.run(*command)
 

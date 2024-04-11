@@ -1,18 +1,21 @@
 import { createSelector } from "@reduxjs/toolkit";
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
-import { addCommonHeaders } from "common/CommonHeaders";
 
 import type { RootState } from "~/app/store";
-import { selectToken } from "~/features/auth";
+import { CONNECTION_ROUTE } from "~/constants";
+import { baseApi } from "~/features/common/api.slice";
 import {
   selectActiveCollection,
   selectActiveDatasetFidesKey,
   selectActiveField,
 } from "~/features/dataset/dataset.slice";
+import { CreateSaasConnectionConfig } from "~/features/datastore-connections";
+import { CreateSaasConnectionConfigResponse } from "~/features/datastore-connections/types";
 import { selectSystemsToClassify } from "~/features/system";
 import {
   AllowList,
   AllowListUpdate,
+  BulkCustomFieldRequest,
+  BulkPutConnectionConfiguration,
   ClassificationResponse,
   ClassifyCollection,
   ClassifyDatasetResponse,
@@ -22,16 +25,28 @@ import {
   ClassifyRequestPayload,
   ClassifyStatusUpdatePayload,
   ClassifySystem,
+  CloudConfig,
+  ConnectionConfigurationResponse,
+  CustomAssetType,
   CustomFieldDefinition,
   CustomFieldDefinitionWithId,
   CustomFieldWithId,
   GenerateTypes,
   HealthCheck,
+  Page_SystemHistoryResponse_,
+  Page_SystemSummary_,
   ResourceTypes,
+  SystemPurposeSummary,
   SystemScannerStatus,
   SystemScanResponse,
   SystemsDiff,
+  TCFPurposeOverrideSchema,
 } from "~/types/api";
+import {
+  DataUseDeclaration,
+  Page_DataUseDeclaration_,
+  Page_Vendor_,
+} from "~/types/dictionary-api";
 
 interface ScanParams {
   classify?: boolean;
@@ -42,28 +57,10 @@ interface ClassifyInstancesParams {
   resource_type: GenerateTypes;
 }
 
-export const plusApi = createApi({
-  reducerPath: "plusApi",
-  baseQuery: fetchBaseQuery({
-    baseUrl: `${process.env.NEXT_PUBLIC_FIDESCTL_API}/plus`,
-    prepareHeaders: (headers, { getState }) => {
-      const token: string | null = selectToken(getState() as RootState);
-      addCommonHeaders(headers, token);
-      return headers;
-    },
-  }),
-  tagTypes: [
-    "AllowList",
-    "ClassifyInstancesDatasets",
-    "ClassifyInstancesSystems",
-    "CustomFieldDefinition",
-    "CustomFields",
-    "LatestScan",
-    "Plus",
-  ],
+const plusApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     getHealth: build.query<HealthCheck, void>({
-      query: () => "health",
+      query: () => "plus/health",
     }),
     /**
      * Fidescls endpoints:
@@ -73,11 +70,11 @@ export const plusApi = createApi({
       ClassifyRequestPayload
     >({
       query: (body) => ({
-        url: `classify/`,
+        url: `plus/classify/`,
         method: "POST",
         body,
       }),
-      invalidatesTags: ["ClassifyInstancesDatasets"],
+      invalidatesTags: ["Classify Instances Datasets"],
     }),
     updateClassifyInstance: build.mutation<
       void,
@@ -87,7 +84,7 @@ export const plusApi = createApi({
         // eslint-disable-next-line @typescript-eslint/naming-convention
         const { resource_type = GenerateTypes.DATASETS, ...body } = payload;
         return {
-          url: `classify/`,
+          url: `plus/classify/`,
           method: "PUT",
           params: { resource_type },
           body,
@@ -95,9 +92,9 @@ export const plusApi = createApi({
       },
       invalidatesTags: (response, errors, args) => {
         if (args.resource_type === GenerateTypes.SYSTEMS) {
-          return ["ClassifyInstancesSystems"];
+          return ["Classify Instances Systems"];
         }
-        return ["ClassifyInstancesDatasets"];
+        return ["Classify Instances Datasets"];
       },
     }),
     getAllClassifyInstances: build.query<
@@ -111,79 +108,93 @@ export const plusApi = createApi({
           urlParams.append("fides_keys", key);
         });
         return {
-          url: `classify/?${urlParams.toString()}`,
+          url: `plus/classify/?${urlParams.toString()}`,
           method: "GET",
         };
       },
       providesTags: (response, errors, args) => {
         if (args.resource_type === GenerateTypes.SYSTEMS) {
-          return ["ClassifyInstancesSystems"];
+          return ["Classify Instances Systems"];
         }
-        return ["ClassifyInstancesDatasets"];
+        return ["Classify Instances Datasets"];
       },
     }),
     getClassifyDataset: build.query<ClassificationResponse, string>({
       query: (dataset_fides_key: string) => ({
-        url: `classify/details/${dataset_fides_key}`,
+        url: `plus/classify/details/${dataset_fides_key}`,
         params: { resource_type: GenerateTypes.DATASETS },
       }),
-      providesTags: ["ClassifyInstancesDatasets"],
+      providesTags: ["Classify Instances Datasets"],
     }),
     getClassifySystem: build.query<ClassifySystem | ClassifyEmpty, string>({
       query: (fidesKey: string) => ({
-        url: `classify/details/${fidesKey}`,
+        url: `plus/classify/details/${fidesKey}`,
         params: { resource_type: GenerateTypes.SYSTEMS },
       }),
-      providesTags: ["ClassifyInstancesSystems"],
+      providesTags: ["Classify Instances Systems"],
     }),
 
     // Kubernetes Cluster Scanner
     updateScan: build.mutation<SystemScanResponse, ScanParams>({
       query: (params: ScanParams) => ({
-        url: `scan`,
+        url: `plus/scan`,
         params,
         method: "PUT",
       }),
-      invalidatesTags: ["ClassifyInstancesSystems", "LatestScan"],
+      invalidatesTags: ["Classify Instances Systems", "Latest Scan"],
     }),
     getLatestScanDiff: build.query<SystemsDiff, void>({
       query: () => ({
-        url: `scan/latest`,
+        url: `plus/scan/latest`,
         params: { diff: true },
         method: "GET",
       }),
-      providesTags: ["LatestScan"],
+      providesTags: ["Latest Scan"],
     }),
 
     // Custom Metadata Allow List
     getAllAllowList: build.query<AllowList[], boolean>({
       query: (show_values: boolean) => ({
-        url: `custom-metadata/allow-list`,
+        url: `plus/custom-metadata/allow-list`,
         params: { show_values },
       }),
-      providesTags: ["AllowList"],
+      providesTags: ["Allow List"],
       transformResponse: (allowList: AllowList[]) =>
         allowList.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "")),
     }),
+    getAllowList: build.query<AllowList, string>({
+      query: (id) => ({
+        url: `plus/custom-metadata/allow-list/${id}`,
+        params: { show_values: true },
+      }),
+      providesTags: ["Allow List"],
+    }),
     upsertAllowList: build.mutation<AllowList, AllowListUpdate>({
       query: (params: AllowListUpdate) => ({
-        url: `custom-metadata/allow-list`,
+        url: `plus/custom-metadata/allow-list`,
         method: "PUT",
         body: params,
       }),
-      invalidatesTags: ["AllowList"],
+      invalidatesTags: ["Allow List"],
     }),
 
     // Custom Metadata Custom Field
+    deleteCustomField: build.mutation<void, { id: string }>({
+      query: ({ id }) => ({
+        url: `plus/custom-metadata/custom-field/${id}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: ["Custom Fields", "Datamap"],
+    }),
     getCustomFieldsForResource: build.query<CustomFieldWithId[], string>({
       query: (resource_id: string) => ({
-        url: `custom-metadata/custom-field/resource/${resource_id}`,
+        url: `plus/custom-metadata/custom-field/resource/${resource_id}`,
       }),
-      providesTags: ["CustomFields"],
+      providesTags: ["Custom Fields"],
     }),
     upsertCustomField: build.mutation<CustomFieldWithId, CustomFieldWithId>({
       query: (params) => ({
-        url: `custom-metadata/custom-field`,
+        url: `plus/custom-metadata/custom-field`,
         method: "PUT",
         body: {
           custom_field_definition_id: params.custom_field_definition_id,
@@ -192,27 +203,54 @@ export const plusApi = createApi({
           value: params.value,
         },
       }),
-      invalidatesTags: ["CustomFields"],
+      invalidatesTags: ["Custom Fields", "Datamap"],
     }),
-    deleteCustomField: build.mutation<void, { id: string }>({
-      query: ({ id }) => ({
-        url: `custom-metadata/custom-field/${id}`,
-        method: "DELETE",
+    bulkUpdateCustomFields: build.mutation<void, BulkCustomFieldRequest>({
+      query: (params) => ({
+        url: `plus/custom-metadata/custom-field/bulk`,
+        method: "POST",
+        body: params,
       }),
-      invalidatesTags: ["CustomFields"],
+      invalidatesTags: ["Custom Fields", "Datamap"],
     }),
-
+    getAllCustomFieldDefinitions: build.query<
+      CustomFieldDefinitionWithId[],
+      void
+    >({
+      query: () => ({
+        url: `plus/custom-metadata/custom-field-definition`,
+      }),
+      providesTags: ["Custom Field Definition"],
+    }),
     // Custom Metadata Custom Field Definition
     addCustomFieldDefinition: build.mutation<
       CustomFieldDefinitionWithId,
       CustomFieldDefinition
     >({
       query: (params) => ({
-        url: `custom-metadata/custom-field-definition`,
+        url: `plus/custom-metadata/custom-field-definition`,
         method: "POST",
         body: params,
       }),
-      invalidatesTags: ["CustomFieldDefinition"],
+      invalidatesTags: ["Custom Field Definition", "Datamap"],
+    }),
+    updateCustomFieldDefinition: build.mutation<
+      CustomFieldDefinitionWithId,
+      CustomFieldDefinition
+    >({
+      query: (params) => ({
+        url: `plus/custom-metadata/custom-field-definition`,
+        method: "PUT",
+        body: params,
+      }),
+      invalidatesTags: ["Custom Field Definition", "Datamap"],
+    }),
+    deleteCustomFieldDefinition: build.mutation<void, { id: string }>({
+      query: ({ id }) => ({
+        url: `plus/custom-metadata/custom-field-definition/${id}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: ["Custom Field Definition", "Datamap"],
     }),
 
     // Custom Metadata Custom Field Definition By Resource Type
@@ -221,30 +259,234 @@ export const plusApi = createApi({
       ResourceTypes
     >({
       query: (resource_type: ResourceTypes) => ({
-        url: `custom-metadata/custom-field-definition/resource-type/${resource_type}`,
+        url: `plus/custom-metadata/custom-field-definition/resource-type/${resource_type}`,
       }),
-      providesTags: ["CustomFieldDefinition"],
+      providesTags: ["Custom Field Definition"],
+      transformResponse: (list: CustomFieldDefinitionWithId[]) =>
+        list.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "")),
+    }),
+    getAllDictionaryEntries: build.query<Page_Vendor_, void>({
+      query: () => ({
+        params: { size: 2000 },
+        url: `plus/dictionary/system`,
+      }),
+      providesTags: ["Dictionary"],
+    }),
+    getAllSystemVendors: build.query<DictSystems[], void>({
+      query: () => ({
+        url: `plus/dictionary/system-vendors`,
+      }),
+      providesTags: ["System Vendors"],
+    }),
+    postSystemVendors: build.mutation<any, string[]>({
+      query: (vendor_ids: string[]) => ({
+        method: "post",
+        url: `plus/dictionary/system-vendors`,
+        body: { vendor_ids },
+      }),
+      invalidatesTags: [
+        "Dictionary",
+        "System Vendors",
+        "System",
+        "Datamap",
+        "System History",
+        "Privacy Notices",
+      ],
+    }),
+    getFidesCloudConfig: build.query<CloudConfig, void>({
+      query: () => ({
+        url: `plus/fides-cloud`,
+        method: "GET",
+      }),
+      providesTags: ["Fides Cloud Config"],
+    }),
+    getSystemPurposeSummary: build.query<SystemPurposeSummary, string>({
+      query: (fidesKey: string) => ({
+        url: `plus/system/${fidesKey}/purpose-summary`,
+        method: "GET",
+      }),
+      providesTags: ["System"],
+    }),
+    getVendorReport: build.query<
+      Page_SystemSummary_,
+      {
+        pageIndex: number;
+        pageSize: number;
+        search?: string;
+        purposes?: string;
+        specialPurposes?: string;
+        dataUses?: string;
+        legalBasis?: string;
+        consentCategories?: string;
+      }
+    >({
+      query: ({
+        pageIndex,
+        pageSize,
+        dataUses,
+        search,
+        legalBasis,
+        purposes,
+        specialPurposes,
+        consentCategories,
+      }) => {
+        let queryString = `page=${pageIndex}&size=${pageSize}`;
+        if (dataUses) {
+          queryString += `&${dataUses}`;
+        }
+
+        if (legalBasis) {
+          queryString += `&${legalBasis}`;
+        }
+        if (purposes) {
+          queryString += `&${purposes}`;
+        }
+        if (specialPurposes) {
+          queryString += `&${specialPurposes}`;
+        }
+        if (consentCategories) {
+          queryString += `&${consentCategories}`;
+        }
+
+        if (search) {
+          queryString += `&search=${search}`;
+        }
+
+        return {
+          url: `plus/system/consent-management/report?${queryString}`,
+          method: "GET",
+        };
+      },
+      providesTags: ["System"],
+    }),
+    getDictionaryDataUses: build.query<
+      Page_DataUseDeclaration_,
+      { vendor_id: string }
+    >({
+      query: ({ vendor_id }) => ({
+        params: { size: 1000 },
+        url: `plus/dictionary/data-use-declarations/${vendor_id}`,
+        method: "GET",
+      }),
+      providesTags: ["Dictionary"],
+    }),
+    getSystemHistory: build.query<
+      Page_SystemHistoryResponse_,
+      { system_key: string; page?: number; size?: number }
+    >({
+      query: (params) => ({
+        url: `plus/system/${params.system_key}/history`,
+        params: {
+          page: params.page,
+          size: params.size,
+        },
+      }),
+      providesTags: () => ["System History"],
+    }),
+    updateCustomAsset: build.mutation<
+      void,
+      { assetType: CustomAssetType; file: File }
+    >({
+      query: ({ assetType, file }) => ({
+        url: `plus/custom-asset/${assetType}`,
+        method: "PUT",
+        body: file,
+        responseHandler: (response: { text: () => any }) => response.text(),
+      }),
+      invalidatesTags: () => ["Custom Assets"],
+    }),
+    patchPlusSystemConnectionConfigs: build.mutation<
+      BulkPutConnectionConfiguration,
+      {
+        systemFidesKey: string;
+        connectionConfigs: (Omit<
+          ConnectionConfigurationResponse,
+          "created_at"
+        > & {
+          enabled_actions?: string[];
+        })[];
+      }
+    >({
+      query: ({ systemFidesKey, connectionConfigs }) => ({
+        url: `/plus/system/${systemFidesKey}/connection`,
+        method: "PATCH",
+        body: connectionConfigs,
+      }),
+      invalidatesTags: ["Datamap", "System", "Datastore Connection"],
+    }),
+    createPlusSaasConnectionConfig: build.mutation<
+      CreateSaasConnectionConfigResponse,
+      CreateSaasConnectionConfig
+    >({
+      query: (params) => {
+        const url = `/plus/system/${params.systemFidesKey}${CONNECTION_ROUTE}/instantiate/${params.connectionConfig.saas_connector_type}`;
+
+        return {
+          url,
+          method: "POST",
+          body: { ...params.connectionConfig },
+        };
+      },
+      // Creating a connection config also creates a dataset behind the scenes
+      invalidatesTags: () => ["Datastore Connection", "Datasets", "System"],
+    }),
+    getTcfPurposeOverrides: build.query<TCFPurposeOverrideSchema[], void>({
+      query: () => ({
+        url: `plus/tcf/purpose_overrides`,
+        method: "GET",
+      }),
+      providesTags: ["TCF Purpose Override"],
+    }),
+    patchTcfPurposeOverrides: build.mutation<
+      TCFPurposeOverrideSchema[],
+      TCFPurposeOverrideSchema[]
+    >({
+      query: (overrides) => ({
+        url: `plus/tcf/purpose_overrides`,
+        method: "PATCH",
+        body: overrides,
+      }),
+      invalidatesTags: ["TCF Purpose Override"],
     }),
   }),
 });
 
 export const {
-  useUpsertCustomFieldMutation,
-  useDeleteCustomFieldMutation,
-  useUpsertAllowListMutation,
-  useUpdateScanMutation,
-  useUpdateClassifyInstanceMutation,
-  useLazyGetLatestScanDiffQuery,
-  useGetLatestScanDiffQuery,
-  useGetHealthQuery,
-  useGetCustomFieldsForResourceQuery,
-  useGetCustomFieldDefinitionsByResourceTypeQuery,
-  useGetClassifySystemQuery,
-  useGetClassifyDatasetQuery,
-  useGetAllClassifyInstancesQuery,
-  useGetAllAllowListQuery,
-  useCreateClassifyInstanceMutation,
   useAddCustomFieldDefinitionMutation,
+  useCreateClassifyInstanceMutation,
+  useDeleteCustomFieldMutation,
+  useDeleteCustomFieldDefinitionMutation,
+  useGetAllAllowListQuery,
+  useGetAllClassifyInstancesQuery,
+  useGetClassifyDatasetQuery,
+  useGetVendorReportQuery,
+  useGetClassifySystemQuery,
+  useGetCustomFieldDefinitionsByResourceTypeQuery,
+  useGetCustomFieldsForResourceQuery,
+  useGetHealthQuery,
+  useGetLatestScanDiffQuery,
+  useLazyGetLatestScanDiffQuery,
+  useUpdateClassifyInstanceMutation,
+  useUpdateCustomFieldDefinitionMutation,
+  useUpdateScanMutation,
+  useUpsertAllowListMutation,
+  useUpsertCustomFieldMutation,
+  useBulkUpdateCustomFieldsMutation,
+  useGetAllCustomFieldDefinitionsQuery,
+  useGetAllowListQuery,
+  useGetAllDictionaryEntriesQuery,
+  useGetFidesCloudConfigQuery,
+  useGetDictionaryDataUsesQuery,
+  useLazyGetDictionaryDataUsesQuery,
+  useGetAllSystemVendorsQuery,
+  usePostSystemVendorsMutation,
+  useGetSystemHistoryQuery,
+  useGetSystemPurposeSummaryQuery,
+  useUpdateCustomAssetMutation,
+  usePatchPlusSystemConnectionConfigsMutation,
+  useCreatePlusSaasConnectionConfigMutation,
+  useGetTcfPurposeOverridesQuery,
+  usePatchTcfPurposeOverridesMutation,
 } = plusApi;
 
 export const selectHealth: (state: RootState) => HealthCheck | undefined =
@@ -344,4 +586,88 @@ export const selectClassifyInstanceFieldMap = createSelector(
 export const selectClassifyInstanceField = createSelector(
   [selectClassifyInstanceFieldMap, selectActiveField],
   (fieldMap, active) => (active ? fieldMap.get(active.name) : undefined)
+);
+
+const emptySelectAllCustomFields: CustomFieldDefinitionWithId[] = [];
+export const selectAllCustomFieldDefinitions = createSelector(
+  plusApi.endpoints.getAllCustomFieldDefinitions.select(),
+  ({ data }) => data || emptySelectAllCustomFields
+);
+
+export type DictOption = {
+  label: string;
+  value: string;
+  description?: string;
+};
+
+const EMPTY_DICT_ENTRIES: DictOption[] = [];
+export const selectAllDictEntries = createSelector(
+  [
+    (RootState) => RootState,
+    plusApi.endpoints.getAllDictionaryEntries.select(),
+  ],
+  (RootState, { data }) =>
+    data
+      ? data.items
+          .map((d) => ({
+            label: (d.name ?? d.legal_name) || "",
+            value: d.vendor_id || "",
+            description: d.description ? d.description : undefined,
+          }))
+          .sort((a, b) => (a.label > b.label ? 1 : -1))
+      : EMPTY_DICT_ENTRIES
+);
+
+const EMPTY_DICT_ENTRY = undefined;
+export const selectDictEntry = (vendorId: string) =>
+  createSelector(
+    [(state) => state, plusApi.endpoints.getAllDictionaryEntries.select()],
+    (state, { data }) => {
+      const dictEntry = data?.items.find((d) => d.vendor_id === vendorId);
+
+      return dictEntry || EMPTY_DICT_ENTRY;
+    }
+  );
+
+const EMPTY_DATA_USES: DataUseDeclaration[] = [];
+
+export const selectDictDataUses = (vendorId: string) =>
+  createSelector(
+    [
+      (state) => state,
+      plusApi.endpoints.getDictionaryDataUses.select({ vendor_id: vendorId }),
+    ],
+    (state, { data }) => (data ? data.items : EMPTY_DATA_USES)
+  );
+
+export type DictSystems = {
+  linked_system: boolean;
+  name: string;
+  vendor_id: string;
+};
+const EMPTY_DICT_SYSTEMS: DictSystems[] = [];
+export const selectAllDictSystems = createSelector(
+  [(RootState) => RootState, plusApi.endpoints.getAllSystemVendors.select()],
+  (RootState, { data }) =>
+    data
+      ? data
+          .slice()
+          .map((ds) => {
+            const name = ds.name
+              .split(" ")
+              .map((word) =>
+                word.charAt(0) === "("
+                  ? `(${word.charAt(1).toUpperCase()}${word
+                      .slice(2)
+                      .toLowerCase()}`
+                  : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+              )
+              .join(" ");
+            return {
+              ...ds,
+              name,
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name))
+      : EMPTY_DICT_SYSTEMS
 );

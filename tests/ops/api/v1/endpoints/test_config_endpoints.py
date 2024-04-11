@@ -1,15 +1,44 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Generator
 
 import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from fides.api.ops.api.v1 import scope_registry as scopes
-from fides.api.ops.api.v1 import urn_registry as urls
-from fides.api.ops.models.application_config import ApplicationConfig
-from fides.api.ops.schemas.storage.storage import StorageType
+from fides.api.main import app
+from fides.api.models.application_config import ApplicationConfig
+from fides.api.oauth.roles import CONTRIBUTOR, OWNER, VIEWER
+from fides.api.schemas.storage.storage import StorageType
+from fides.api.util.cors_middleware_utils import (
+    find_cors_middleware,
+    update_cors_middleware,
+)
+from fides.common.api import scope_registry as scopes
+from fides.common.api.v1 import urn_registry as urls
+
+
+@pytest.fixture(scope="function")
+def original_cors_middleware_origins() -> Generator:
+    """
+    Fixture to be run on any test that updates cors origins.
+    Fixture teardown ensure cors origin middleware is reset to its original state.
+
+    The fixture also yields the cors middleware original allow_origins values.
+    """
+
+    original_cors_middleware = find_cors_middleware(app)
+
+    assert original_cors_middleware is not None
+
+    yield original_cors_middleware.options["allow_origins"]
+
+    # on teardown - find the new cors middleware, remove it, and add back in the original
+    update_cors_middleware(
+        app,
+        original_cors_middleware.options["allow_origins"],
+        original_cors_middleware.options["allow_origin_regex"],
+    )
 
 
 class TestPatchApplicationConfig:
@@ -22,7 +51,7 @@ class TestPatchApplicationConfig:
         return {
             "storage": {"active_default_storage_type": StorageType.s3.value},
             "notifications": {
-                "notification_service_type": "TWILIO_TEXT",
+                "notification_service_type": "twilio_text",
                 "send_request_completion_notification": True,
                 "send_request_receipt_notification": True,
                 "send_request_review_notification": True,
@@ -30,6 +59,13 @@ class TestPatchApplicationConfig:
             "execution": {
                 "subject_identity_verification_required": True,
                 "require_manual_request_approval": True,
+            },
+            "security": {
+                "cors_origins": [
+                    "http://acme1.example.com",
+                    "http://acme2.example.com",
+                    "http://acme3.example.com",
+                ]
             },
         }
 
@@ -45,6 +81,27 @@ class TestPatchApplicationConfig:
         auth_header = generate_auth_header([scopes.CONFIG_READ])
         response = api_client.patch(url, headers=auth_header, json=payload)
         assert 403 == response.status_code
+
+    def test_patch_application_config_viewer_role(
+        self, api_client: TestClient, payload, url, generate_role_header
+    ):
+        auth_header = generate_role_header(roles=[VIEWER])
+        response = api_client.patch(url, headers=auth_header, json=payload)
+        assert 403 == response.status_code
+
+    def test_patch_application_config_contributor_role(
+        self, api_client: TestClient, payload, url, generate_role_header
+    ):
+        auth_header = generate_role_header(roles=[CONTRIBUTOR])
+        response = api_client.patch(url, headers=auth_header, json=payload)
+        assert 200 == response.status_code
+
+    def test_patch_application_config_admin_role(
+        self, api_client: TestClient, payload, url, generate_role_header
+    ):
+        auth_header = generate_role_header(roles=[OWNER])
+        response = api_client.patch(url, headers=auth_header, json=payload)
+        assert 200 == response.status_code
 
     def test_patch_application_config_with_invalid_key(
         self,
@@ -148,6 +205,7 @@ class TestPatchApplicationConfig:
         assert db_settings.api_set["storage"] == payload["storage"]
         assert db_settings.api_set["execution"] == payload["execution"]
         assert db_settings.api_set["notifications"] == payload["notifications"]
+        assert db_settings.api_set["security"] == payload["security"]
 
         # try PATCHing a single property
         updated_payload = {"storage": {"active_default_storage_type": "local"}}
@@ -168,12 +226,13 @@ class TestPatchApplicationConfig:
         # but other properties were not impacted
         assert db_settings.api_set["execution"] == payload["execution"]
         assert db_settings.api_set["notifications"] == payload["notifications"]
+        assert db_settings.api_set["security"] == payload["security"]
 
         # try PATCHing multiple properties in the same nested object
         updated_payload = {
             "execution": {"subject_identity_verification_required": False},
             "notifications": {
-                "notification_service_type": "MAILGUN",
+                "notification_service_type": "mailgun",
                 "send_request_completion_notification": False,
             },
         }
@@ -190,7 +249,7 @@ class TestPatchApplicationConfig:
             is False
         )
         assert (
-            response_settings["notifications"]["notification_service_type"] == "MAILGUN"
+            response_settings["notifications"]["notification_service_type"] == "mailgun"
         )
         assert (
             response_settings["notifications"]["send_request_completion_notification"]
@@ -201,6 +260,7 @@ class TestPatchApplicationConfig:
             response_settings["notifications"]["send_request_receipt_notification"]
             is True
         )
+        assert db_settings.api_set["security"] == payload["security"]
 
         db.refresh(db_settings)
         # ensure property was updated on backend
@@ -211,7 +271,7 @@ class TestPatchApplicationConfig:
         )
         assert (
             db_settings.api_set["notifications"]["notification_service_type"]
-            == "MAILGUN"
+            == "mailgun"
         )
         assert (
             db_settings.api_set["notifications"]["send_request_completion_notification"]
@@ -222,6 +282,7 @@ class TestPatchApplicationConfig:
             db_settings.api_set["notifications"]["send_request_receipt_notification"]
             is True
         )
+        assert db_settings.api_set["security"] == payload["security"]
 
     def test_patch_application_config_notifications_properties(
         self,
@@ -231,7 +292,6 @@ class TestPatchApplicationConfig:
         payload,
         db: Session,
     ):
-
         payload = {"notifications": {"send_request_completion_notification": False}}
         auth_header = generate_auth_header([scopes.CONFIG_UPDATE])
         response = api_client.patch(
@@ -249,6 +309,103 @@ class TestPatchApplicationConfig:
         assert db_settings.api_set["notifications"] == payload["notifications"]
         assert "execution" not in db_settings.api_set
 
+    def test_patch_application_config_updates_cors_domains_in_middleware(
+        self,
+        api_client: TestClient,
+        generate_auth_header,
+        original_cors_middleware_origins,
+        url,
+        payload,
+        db: Session,
+    ):
+        auth_header = generate_auth_header([scopes.CONFIG_UPDATE])
+        response = api_client.patch(
+            url,
+            headers=auth_header,
+            json=payload,
+        )
+        assert response.status_code == 200
+
+        current_cors_middleware = find_cors_middleware(api_client.app)
+
+        assert set(current_cors_middleware.options["allow_origins"]) == set(
+            payload["security"]["cors_origins"]
+        ).union(set(original_cors_middleware_origins))
+
+        # now ensure that the middleware update was effective by trying
+        # some sample requests with different origins
+
+        # first, try with an original allowed origin, which should still be accepted
+        assert len(original_cors_middleware_origins)
+        headers = {
+            **auth_header,
+            "Origin": original_cors_middleware_origins[0],
+            "Access-Control-Request-Method": "PATCH",
+        }
+        response = api_client.options(url, headers=headers)
+        assert response.status_code == 200
+
+        # now try with a new allowed origin, which should also be accepted
+        headers = {
+            **auth_header,
+            "Origin": payload["security"]["cors_origins"][0],
+            "Access-Control-Request-Method": "PATCH",
+        }
+        response = api_client.options(url, headers=headers)
+        assert response.status_code == 200
+
+    def test_patch_application_config_updates_cors_domains_rejects_invalid_urls(
+        self,
+        api_client: TestClient,
+        generate_auth_header,
+        url,
+        db: Session,
+    ):
+        """
+        Ensure invalid URL values for cors origin domains are rejected by API.
+        """
+
+        payload = {"security": {"cors_origins": ["*"]}}
+        auth_header = generate_auth_header([scopes.CONFIG_UPDATE])
+        response = api_client.patch(
+            url,
+            headers=auth_header,
+            json=payload,
+        )
+        assert response.status_code == 422
+
+        payload = {"security": {"cors_origins": ["test.com"]}}
+        response = api_client.patch(
+            url,
+            headers=auth_header,
+            json=payload,
+        )
+        assert response.status_code == 422
+
+        payload = {"security": {"cors_origins": ["test"]}}
+        response = api_client.patch(
+            url,
+            headers=auth_header,
+            json=payload,
+        )
+        assert response.status_code == 422
+
+        payload = {"security": {"cors_origins": ["http://test.com/"]}}
+        response = api_client.patch(
+            url,
+            headers=auth_header,
+            json=payload,
+        )
+        assert response.status_code == 422
+
+        payload = {"security": {"cors_origins": ["http://test.com/123/456"]}}
+        response = api_client.patch(
+            url,
+            headers=auth_header,
+            json=payload,
+        )
+        assert response.status_code == 422
+
     def test_patch_application_config_invalid_notification_type(
         self,
         api_client: TestClient,
@@ -257,7 +414,6 @@ class TestPatchApplicationConfig:
         payload,
         db: Session,
     ):
-
         payload = {
             "notifications": {"notification_service_type": "invalid_service_type"}
         }
@@ -270,6 +426,358 @@ class TestPatchApplicationConfig:
         assert response.status_code == 422
 
 
+class TestPutApplicationConfig:
+    @pytest.fixture(scope="function")
+    def url(self) -> str:
+        return urls.V1_URL_PREFIX + urls.CONFIG
+
+    @pytest.fixture(scope="function")
+    def payload(self):
+        return {
+            "storage": {"active_default_storage_type": StorageType.s3.value},
+            "notifications": {
+                "notification_service_type": "twilio_text",
+                "send_request_completion_notification": True,
+                "send_request_receipt_notification": True,
+                "send_request_review_notification": True,
+            },
+            "execution": {
+                "subject_identity_verification_required": True,
+                "require_manual_request_approval": True,
+            },
+            "security": {
+                "cors_origins": [
+                    "http://acme1.example.com",
+                    "http://acme2.example.com",
+                    "http://acme3.example.com",
+                ]
+            },
+        }
+
+    def test_put_application_config_unauthenticated(
+        self, api_client: TestClient, payload, url
+    ):
+        response = api_client.put(url, headers={}, json=payload)
+        assert 401 == response.status_code
+
+    def test_put_application_config_wrong_scope(
+        self, api_client: TestClient, payload, url, generate_auth_header
+    ):
+        auth_header = generate_auth_header([scopes.CONFIG_READ])
+        response = api_client.put(url, headers=auth_header, json=payload)
+        assert 403 == response.status_code
+
+    def test_put_application_config_viewer_role(
+        self, api_client: TestClient, payload, url, generate_role_header
+    ):
+        auth_header = generate_role_header(roles=[VIEWER])
+        response = api_client.put(url, headers=auth_header, json=payload)
+        assert 403 == response.status_code
+
+    def test_put_application_config_contributor_role(
+        self, api_client: TestClient, payload, url, generate_role_header
+    ):
+        auth_header = generate_role_header(roles=[CONTRIBUTOR])
+        response = api_client.put(url, headers=auth_header, json=payload)
+        assert 200 == response.status_code
+
+    def test_put_application_config_admin_role(
+        self, api_client: TestClient, payload, url, generate_role_header
+    ):
+        auth_header = generate_role_header(roles=[OWNER])
+        response = api_client.put(url, headers=auth_header, json=payload)
+        assert 200 == response.status_code
+
+    def test_put_application_config_with_invalid_key(
+        self,
+        api_client: TestClient,
+        generate_auth_header,
+        url,
+        payload: dict[str, Any],
+    ):
+        auth_header = generate_auth_header([scopes.CONFIG_UPDATE])
+        response = api_client.put(
+            url, headers=auth_header, json={"storage": {"bad_key": "s3"}}
+        )
+        assert response.status_code == 422
+
+        response = api_client.put(
+            url,
+            headers=auth_header,
+            json={"bad_key": {"active_default_storage_type": "s3"}},
+        )
+        assert response.status_code == 422
+
+        # now test payload with both a good key and a bad key - should be rejected
+        payload["bad_key"] = "12345"
+        response = api_client.put(url, headers=auth_header, json=payload)
+        assert response.status_code == 422
+
+        # and a nested bad key
+        payload.pop("bad_key")
+        payload["storage"]["bad_key"] = "12345"
+        response = api_client.put(url, headers=auth_header, json=payload)
+        assert response.status_code == 422
+
+    def test_put_application_config_with_invalid_value(
+        self, api_client: TestClient, generate_auth_header, url
+    ):
+        auth_header = generate_auth_header([scopes.CONFIG_UPDATE])
+        response = api_client.put(
+            url,
+            headers=auth_header,
+            json={"storage": {"active_default_storage_type": 33}},
+        )
+        assert response.status_code == 422
+
+        response = api_client.put(
+            url,
+            headers=auth_header,
+            json={"storage": {"active_default_storage_type": "fake_storage_type"}},
+        )
+        assert response.status_code == 422
+
+        # gcs is valid storage type but not allowed currently
+        # as an `active_default_storage_type``
+        response = api_client.put(
+            url,
+            headers=auth_header,
+            json={"storage": {"active_default_storage_type": StorageType.gcs.value}},
+        )
+        assert response.status_code == 422
+
+    def test_put_application_config_empty_body(
+        self,
+        api_client: TestClient,
+        generate_auth_header,
+        url,
+    ):
+        auth_header = generate_auth_header([scopes.CONFIG_UPDATE])
+        response = api_client.put(
+            url,
+            headers=auth_header,
+            json={},
+        )
+        assert response.status_code == 422
+
+        response = api_client.put(
+            url,
+            headers=auth_header,
+        )
+        assert response.status_code == 422
+
+    def test_put_application_config(
+        self,
+        api_client: TestClient,
+        generate_auth_header,
+        url,
+        payload,
+        db: Session,
+    ):
+        auth_header = generate_auth_header([scopes.CONFIG_UPDATE])
+        response = api_client.put(
+            url,
+            headers=auth_header,
+            json=payload,
+        )
+        assert response.status_code == 200
+        response_settings = response.json()
+        assert response_settings["storage"] == payload["storage"]
+        assert response_settings["execution"] == payload["execution"]
+        assert response_settings["notifications"] == payload["notifications"]
+        db_settings = db.query(ApplicationConfig).first()
+        assert db_settings.api_set["storage"] == payload["storage"]
+        assert db_settings.api_set["execution"] == payload["execution"]
+        assert db_settings.api_set["notifications"] == payload["notifications"]
+        assert db_settings.api_set["security"] == payload["security"]
+
+        # try PUTing a single property
+        updated_payload = {"storage": {"active_default_storage_type": "local"}}
+        response = api_client.put(
+            url,
+            headers=auth_header,
+            json=updated_payload,
+        )
+        assert response.status_code == 200
+        response_settings = response.json()
+        assert response_settings["storage"]["active_default_storage_type"] == "local"
+        # ensure other properties were nulled
+        assert response_settings.get("execution") is None
+        assert response_settings.get("notifications") is None
+        db.refresh(db_settings)
+        # ensure property was updated on backend
+        assert db_settings.api_set["storage"]["active_default_storage_type"] == "local"
+        # but other properties are no longer present
+        assert db_settings.api_set.get("execution") is None
+        assert db_settings.api_set.get("notifications") is None
+        assert db_settings.api_set.get("security") is None
+
+        # try PUTing multiple properties in the same nested object
+        updated_payload = {
+            "execution": {"subject_identity_verification_required": False},
+            "notifications": {
+                "notification_service_type": "mailgun",
+                "send_request_completion_notification": False,
+            },
+        }
+        response = api_client.put(
+            url,
+            headers=auth_header,
+            json=updated_payload,
+        )
+        assert response.status_code == 200
+        response_settings = response.json()
+        assert (
+            response_settings["execution"]["subject_identity_verification_required"]
+            is False
+        )
+        assert (
+            response_settings["notifications"]["notification_service_type"] == "mailgun"
+        )
+        assert (
+            response_settings["notifications"]["send_request_completion_notification"]
+            is False
+        )
+        # ensure other properties are no longer present
+        assert response_settings.get("storage") is None
+        assert (
+            response_settings["notifications"].get("send_request_receipt_notification")
+            is None
+        )
+        assert response_settings.get("security") is None
+
+        db.refresh(db_settings)
+        # ensure specified properties were updated on backend
+        assert (
+            db_settings.api_set["execution"]["subject_identity_verification_required"]
+            is False
+        )
+        assert (
+            db_settings.api_set["notifications"]["notification_service_type"]
+            == "mailgun"
+        )
+        assert (
+            db_settings.api_set["notifications"]["send_request_completion_notification"]
+            is False
+        )
+        # ensure other properties are no longer present
+        assert db_settings.api_set.get("storage") == None
+        assert (
+            db_settings.api_set["notifications"].get(
+                "send_request_receipt_notification"
+            )
+            is None
+        )
+        assert db_settings.api_set.get("security") is None
+
+    def test_put_application_config_updates_cors_domains_in_middleware(
+        self,
+        api_client: TestClient,
+        generate_auth_header,
+        url,
+        payload,
+        original_cors_middleware_origins,
+    ):
+        auth_header = generate_auth_header([scopes.CONFIG_UPDATE])
+        new_cors_origins = payload["security"]["cors_origins"]
+
+        # try with a new allowed origin, which should not be accepted yet
+        # since we have not made the config update yet
+        headers = {
+            **auth_header,
+            "Origin": new_cors_origins[0],
+            "Access-Control-Request-Method": "PUT",
+        }
+        response = api_client.options(url, headers=headers)
+        assert response.status_code == 400
+        assert response.text == "Disallowed CORS origin"
+
+        # if we set cors origins values via API, ensure that those are the
+        # `allow_origins` values on the active cors middleware
+        response = api_client.put(
+            url,
+            headers=auth_header,
+            json=payload,
+        )
+        assert response.status_code == 200
+
+        current_cors_middleware = find_cors_middleware(api_client.app)
+
+        assert set(current_cors_middleware.options["allow_origins"]) == set(
+            new_cors_origins
+        ).union(set(original_cors_middleware_origins))
+
+        # now ensure that the middleware update was effective by trying
+        # some sample requests with different origins
+
+        # first, try with an original allowed origin, which should still be accepted
+        assert len(original_cors_middleware_origins)
+        headers = {
+            **auth_header,
+            "Origin": original_cors_middleware_origins[0],
+            "Access-Control-Request-Method": "PUT",
+        }
+        response = api_client.options(url, headers=headers)
+        assert response.status_code == 200
+
+        # now try with a new allowed origin, which should also be accepted
+        headers = {
+            **auth_header,
+            "Origin": new_cors_origins[0],
+            "Access-Control-Request-Method": "PUT",
+        }
+        response = api_client.options(url, headers=headers)
+        assert response.status_code == 200
+
+        # but ensure that an unrelated origin is still not allowed
+        headers = {
+            **auth_header,
+            "Origin": "https://fakesite.com",
+            "Access-Control-Request-Method": "PUT",
+        }
+        response = api_client.options(url, headers=headers)
+        assert response.status_code == 400
+        assert response.text == "Disallowed CORS origin"
+
+        # but then ensure that we can revert back to the original values
+        # by PUTing a config that does not have cors origins specified
+        payload.pop("security")  # remove cors origins from PUT payload
+        response = api_client.put(
+            url,
+            headers=auth_header,
+            json=payload,
+        )
+        assert response.status_code == 200
+
+        current_cors_middleware = find_cors_middleware(api_client.app)
+        assert set(current_cors_middleware.options["allow_origins"]) == set(
+            original_cors_middleware_origins
+        )  # assert our cors middleware has been reset to original values
+
+        # now ensure that the middleware update was effective by trying
+        # some sample requests with different origins
+
+        # first, try with an original allowed origin, which should still be accepted
+        assert len(original_cors_middleware_origins)
+        headers = {
+            **auth_header,
+            "Origin": original_cors_middleware_origins[0],
+            "Access-Control-Request-Method": "PUT",
+        }
+        response = api_client.options(url, headers=headers)
+        assert response.status_code == 200
+
+        # now try with a "new" allowed origin, which should no longer be accepted
+        headers = {
+            **auth_header,
+            "Origin": new_cors_origins[0],
+            "Access-Control-Request-Method": "PUT",
+        }
+        response = api_client.options(url, headers=headers)
+        assert response.status_code == 400
+        assert response.text == "Disallowed CORS origin"
+
+
 class TestGetApplicationConfigApiSet:
     @pytest.fixture(scope="function")
     def url(self) -> str:
@@ -277,7 +785,16 @@ class TestGetApplicationConfigApiSet:
 
     @pytest.fixture(scope="function")
     def payload(self):
-        return {"storage": {"active_default_storage_type": StorageType.s3.value}}
+        return {
+            "storage": {"active_default_storage_type": StorageType.s3.value},
+            "security": {
+                "cors_origins": [
+                    "http://acme1.example.com",
+                    "http://acme2.example.com",
+                    "http://acme3.example.com",
+                ]
+            },
+        }
 
     @pytest.fixture(scope="function")
     def payload_single_notification_property(self):
@@ -329,7 +846,8 @@ class TestGetApplicationConfigApiSet:
 
         # then we test that we can GET them
         auth_header = generate_auth_header([scopes.CONFIG_READ])
-        response = api_client.get(
+        response = api_client.request(
+            "GET",
             url,
             headers=auth_header,
             params={"api_set": True},
@@ -340,6 +858,7 @@ class TestGetApplicationConfigApiSet:
             response_settings["storage"]["active_default_storage_type"]
             == payload["storage"]["active_default_storage_type"]
         )
+        assert response_settings["security"] == payload["security"]
 
         # now PATCH in a single notification property
         auth_header = generate_auth_header([scopes.CONFIG_UPDATE])
@@ -367,7 +886,7 @@ class TestGetApplicationConfigApiSet:
             response_settings["notifications"]["notification_service_type"]
             == payload_single_notification_property["notifications"][
                 "notification_service_type"
-            ].upper()
+            ]
         )
 
 
@@ -381,7 +900,7 @@ class TestDeleteApplicationConfig:
         return {
             "storage": {"active_default_storage_type": StorageType.s3.value},
             "notifications": {
-                "notification_service_type": "TWILIO_TEXT",
+                "notification_service_type": "twilio_text",
                 "send_request_completion_notification": True,
                 "send_request_receipt_notification": True,
                 "send_request_review_notification": True,
@@ -389,6 +908,13 @@ class TestDeleteApplicationConfig:
             "execution": {
                 "subject_identity_verification_required": True,
                 "require_manual_request_approval": True,
+            },
+            "security": {
+                "cors_origins": [
+                    "http://acme1.example.com",
+                    "http://acme2.example.com",
+                    "http://acme3.example.com",
+                ]
             },
         }
 
@@ -518,8 +1044,38 @@ class TestDeleteApplicationConfig:
         response_settings = response.json()
         assert response_settings == {}
 
+    def test_reset_removes_all_cors_domain_from_middleware(
+        self,
+        api_client: TestClient,
+        generate_auth_header,
+        url,
+        db: Session,
+        payload,
+    ):
+        auth_header = generate_auth_header([scopes.CONFIG_UPDATE])
+        response = api_client.patch(
+            url,
+            headers=auth_header,
+            json=payload,
+        )
+        assert response.status_code == 200
 
-class TestGetConnections:
+        auth_header = generate_auth_header([scopes.CONFIG_UPDATE])
+        response = api_client.delete(
+            url,
+            headers=auth_header,
+        )
+        assert response.status_code == 200
+        # Check the app config direcitly to make sure it's reset and
+        # by proxy check that the CORS domains are reset.
+        # The middleware isn't checked directly because it's
+        # possible that the config set will still have some
+        # domains and when the `api_set` is reset the middleware
+        # will still have the `config_set` domains loaded in.
+        assert ApplicationConfig.get_api_set(db) == {}
+
+
+class TestGetConfig:
     @pytest.fixture(scope="function")
     def url(self) -> str:
         return urls.V1_URL_PREFIX + urls.CONFIG
@@ -535,11 +1091,30 @@ class TestGetConnections:
         assert resp.status_code == 200
 
         config = resp.json()
-        assert "database" in config
-        assert "password" not in config["database"]
-        assert "redis" in config
-        assert "password" not in config["redis"]
+
+        # effectively hardcode our allow list here in our tests to flag any additions to the allowlist!
+        # allowlist additions should be made with care, and _need_ to be reviewed by the
+        # Ethyca security team
+        allowed_top_level_config_keys = {
+            "user",
+            "logging",
+            "notifications",
+            "security",
+            "execution",
+            "storage",
+            "consent",
+        }
+
+        for key in config.keys():
+            assert (
+                key in allowed_top_level_config_keys
+            ), "Unexpected config API change, please review with Ethyca security team"
+
         assert "security" in config
+        assert "user" in config
+        assert "logging" in config
+        assert "notifications" in config
+
         security_keys = set(config["security"].keys())
         assert (
             len(
@@ -550,9 +1125,93 @@ class TestGetConnections:
                             "encoding",
                             "oauth_access_token_expire_minutes",
                             "subject_request_download_link_ttl_seconds",
+                            "cors_origin_regex",
                         ]
                     )
                 )
             )
             == 0
-        )
+        ), "Unexpected config API change, please review with Ethyca security team"
+
+        user_keys = set(config["user"].keys())
+        assert (
+            len(
+                user_keys.difference(
+                    set(
+                        [
+                            "analytics_opt_out",
+                        ]
+                    )
+                )
+            )
+            == 0
+        ), "Unexpected config API change, please review with Ethyca security team"
+
+        logging_keys = set(config["logging"].keys())
+        assert (
+            len(
+                logging_keys.difference(
+                    set(
+                        [
+                            "level",
+                        ]
+                    )
+                )
+            )
+            == 0
+        ), "Unexpected config API change, please review with Ethyca security team"
+
+        notifications_keys = set(config["notifications"].keys())
+        assert (
+            len(
+                notifications_keys.difference(
+                    set(
+                        [
+                            "send_request_completion_notification",
+                            "send_request_receipt_notification",
+                            "send_request_review_notification",
+                            "notification_service_type",
+                        ]
+                    )
+                )
+            )
+            == 0
+        ), "Unexpected config API change, please review with Ethyca security team"
+
+        execution_keys = set(config["execution"].keys())
+        assert (
+            len(
+                execution_keys.difference(
+                    set(
+                        [
+                            "task_retry_count",
+                            "task_retry_delay",
+                            "task_retry_backoff",
+                            "require_manual_request_approval",
+                            "subject_identity_verification_required",
+                        ]
+                    )
+                )
+            )
+            == 0
+        ), "Unexpected config API change, please review with Ethyca security team"
+
+        if "storage" in config:  # storage not necessarily in config in test runtime
+            storage_keys = set(config["storage"].keys())
+            assert (
+                len(
+                    storage_keys.difference(
+                        set(
+                            [
+                                "active_default_storage_type",
+                            ]
+                        )
+                    )
+                )
+                == 0
+            ), "Unexpected config API change, please review with Ethyca security team"
+
+        consent_keys = set(config["consent"].keys())
+        assert (
+            len(consent_keys.difference(set(["override_vendor_purposes"]))) == 0
+        ), "Unexpected config API change, please review with Ethyca security team"

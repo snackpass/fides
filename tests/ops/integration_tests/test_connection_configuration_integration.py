@@ -2,33 +2,31 @@ import json
 
 import pytest
 from pymongo import MongoClient
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import URL, Engine
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from fides.api.ops.api.v1.scope_registry import (
-    CONNECTION_CREATE_OR_UPDATE,
-    CONNECTION_READ,
-    STORAGE_READ,
-)
-from fides.api.ops.api.v1.urn_registry import CONNECTIONS, V1_URL_PREFIX
-from fides.api.ops.common_exceptions import ConnectionException
-from fides.api.ops.models.connectionconfig import ConnectionTestStatus
-from fides.api.ops.service.connectors import (
+from fides.api.common_exceptions import ConnectionException
+from fides.api.models.client import ClientDetail
+from fides.api.models.connectionconfig import ConnectionTestStatus
+from fides.api.service.connectors import (
     MongoDBConnector,
     PostgreSQLConnector,
     SaaSConnector,
     get_connector,
 )
-from fides.api.ops.service.connectors.saas.authenticated_client import (
-    AuthenticatedClient,
-)
-from fides.api.ops.service.connectors.sql_connector import (
+from fides.api.service.connectors.saas.authenticated_client import AuthenticatedClient
+from fides.api.service.connectors.sql_connector import (
     MariaDBConnector,
     MicrosoftSQLServerConnector,
     MySQLConnector,
 )
-from fides.lib.models.client import ClientDetail
+from fides.common.api.scope_registry import (
+    CONNECTION_CREATE_OR_UPDATE,
+    CONNECTION_READ,
+    STORAGE_READ,
+)
+from fides.common.api.v1.urn_registry import CONNECTIONS, V1_URL_PREFIX
 
 
 @pytest.mark.integration_postgres
@@ -69,8 +67,8 @@ class TestPostgresConnectionPutSecretsAPI:
             "dbname": "my_test_db",
             "username": None,
             "password": None,
-            "url": None,
             "db_schema": None,
+            "ssh_required": False,
         }
         assert connection_config.last_test_timestamp is not None
         assert connection_config.last_test_succeeded is False
@@ -110,53 +108,12 @@ class TestPostgresConnectionPutSecretsAPI:
         db.refresh(connection_config)
         assert connection_config.secrets == {
             "host": "postgres_example",
-            "port": None,
+            "port": 5432,
             "dbname": "postgres_example",
             "username": "postgres",
             "password": "postgres",
-            "url": None,
             "db_schema": None,
-        }
-        assert connection_config.last_test_timestamp is not None
-        assert connection_config.last_test_succeeded is True
-
-    def test_postgres_db_connection_connect_with_url(
-        self,
-        url,
-        api_client: TestClient,
-        db: Session,
-        generate_auth_header,
-        connection_config,
-        postgres_integration_db,
-    ) -> None:
-        payload = {
-            "url": "postgresql://postgres:postgres@postgres_example/postgres_example"
-        }
-
-        auth_header = generate_auth_header(scopes=[CONNECTION_CREATE_OR_UPDATE])
-        resp = api_client.put(
-            url,
-            headers=auth_header,
-            json=payload,
-        )
-        assert resp.status_code == 200
-        body = json.loads(resp.text)
-
-        assert (
-            body["msg"]
-            == f"Secrets updated for ConnectionConfig with key: {connection_config.key}."
-        )
-        assert body["failure_reason"] is None
-        assert body["test_status"] == "succeeded"
-        db.refresh(connection_config)
-        assert connection_config.secrets == {
-            "host": None,
-            "port": None,
-            "dbname": None,
-            "username": None,
-            "password": None,
-            "url": payload["url"],
-            "db_schema": None,
+            "ssh_required": False,
         }
         assert connection_config.last_test_timestamp is not None
         assert connection_config.last_test_succeeded is True
@@ -214,7 +171,10 @@ class TestPostgresConnectionTestSecretsAPI:
         connection_config,
     ) -> None:
         assert connection_config.last_test_timestamp is None
-        connection_config.secrets = {"host": "invalid_host"}
+        connection_config.secrets = {
+            "host": "invalid_host",
+            "dbname": "postgres_example",
+        }
         connection_config.save(db)
 
         auth_header = generate_auth_header(scopes=[CONNECTION_READ])
@@ -275,12 +235,28 @@ class TestPostgresConnector:
         generate_auth_header,
         connection_config,
         postgres_integration_db,
+        postgres_example_secrets,
     ) -> None:
         connector = get_connector(connection_config)
         assert connector.__class__ == PostgreSQLConnector
 
         client = connector.client()
         assert client.__class__ == Engine
+        assert connector.test_connection() == ConnectionTestStatus.succeeded
+
+        connection_config.secrets = {
+            "url": str(
+                URL.create(
+                    "postgresql",
+                    username=postgres_example_secrets["username"],
+                    password=postgres_example_secrets["password"],
+                    host=postgres_example_secrets["host"],
+                    database=postgres_example_secrets["dbname"],
+                )
+            )
+        }
+        connection_config.save(db)
+        connector = get_connector(connection_config)
         assert connector.test_connection() == ConnectionTestStatus.succeeded
 
         connection_config.secrets = {"host": "bad_host"}
@@ -328,7 +304,7 @@ class TestMySQLConnectionPutSecretsAPI:
             "dbname": "my_test_db",
             "username": None,
             "password": None,
-            "url": None,
+            "ssh_required": False,
         }
         assert connection_config_mysql.last_test_timestamp is not None
         assert connection_config_mysql.last_test_succeeded is False
@@ -369,47 +345,8 @@ class TestMySQLConnectionPutSecretsAPI:
             "dbname": "mysql_example",
             "username": "mysql_user",
             "password": "mysql_pw",
-            "url": None,
-            "port": None,
-        }
-        assert connection_config_mysql.last_test_timestamp is not None
-        assert connection_config_mysql.last_test_succeeded is True
-
-    def test_mysql_db_connection_connect_with_url(
-        self,
-        url,
-        api_client: TestClient,
-        db: Session,
-        generate_auth_header,
-        connection_config_mysql,
-    ) -> None:
-        payload = {
-            "url": "mysql+pymysql://mysql_user:mysql_pw@mysql_example/mysql_example"
-        }
-
-        auth_header = generate_auth_header(scopes=[CONNECTION_CREATE_OR_UPDATE])
-        resp = api_client.put(
-            url,
-            headers=auth_header,
-            json=payload,
-        )
-        assert resp.status_code == 200
-        body = json.loads(resp.text)
-
-        assert (
-            body["msg"]
-            == f"Secrets updated for ConnectionConfig with key: {connection_config_mysql.key}."
-        )
-        assert body["failure_reason"] is None
-        assert body["test_status"] == "succeeded"
-        db.refresh(connection_config_mysql)
-        assert connection_config_mysql.secrets == {
-            "host": None,
-            "port": None,
-            "dbname": None,
-            "username": None,
-            "password": None,
-            "url": payload["url"],
+            "port": 3306,
+            "ssh_required": False,
         }
         assert connection_config_mysql.last_test_timestamp is not None
         assert connection_config_mysql.last_test_succeeded is True
@@ -467,7 +404,10 @@ class TestMySQLConnectionTestSecretsAPI:
         connection_config_mysql,
     ) -> None:
         assert connection_config_mysql.last_test_timestamp is None
-        connection_config_mysql.secrets = {"host": "invalid_host"}
+        connection_config_mysql.secrets = {
+            "host": "invalid_host",
+            "dbname": "mysql_example",
+        }
         connection_config_mysql.save(db)
 
         auth_header = generate_auth_header(scopes=[CONNECTION_READ])
@@ -526,12 +466,28 @@ class TestMySQLConnector:
         db: Session,
         generate_auth_header,
         connection_config_mysql,
+        mysql_example_secrets,
     ) -> None:
         connector = get_connector(connection_config_mysql)
         assert connector.__class__ == MySQLConnector
 
         client = connector.client()
         assert client.__class__ == Engine
+        assert connector.test_connection() == ConnectionTestStatus.succeeded
+
+        connection_config_mysql.secrets = {
+            "url": str(
+                URL.create(
+                    "mysql+pymysql",
+                    username=mysql_example_secrets["username"],
+                    password=mysql_example_secrets["password"],
+                    host=mysql_example_secrets["host"],
+                    database=mysql_example_secrets["dbname"],
+                )
+            )
+        }
+        connection_config_mysql.save(db)
+        connector = get_connector(connection_config_mysql)
         assert connector.test_connection() == ConnectionTestStatus.succeeded
 
         connection_config_mysql.secrets = {"host": "bad_host"}
@@ -579,7 +535,6 @@ class TestMariaDBConnectionPutSecretsAPI:
             "dbname": "my_test_db",
             "username": None,
             "password": None,
-            "url": None,
         }
         assert connection_config_mariadb.last_test_timestamp is not None
         assert connection_config_mariadb.last_test_succeeded is False
@@ -620,47 +575,7 @@ class TestMariaDBConnectionPutSecretsAPI:
             "dbname": "mariadb_example",
             "username": "mariadb_user",
             "password": "mariadb_pw",
-            "url": None,
-            "port": None,
-        }
-        assert connection_config_mariadb.last_test_timestamp is not None
-        assert connection_config_mariadb.last_test_succeeded is True
-
-    def test_mariadb_db_connection_connect_with_url(
-        self,
-        url,
-        api_client: TestClient,
-        db: Session,
-        generate_auth_header,
-        connection_config_mariadb,
-    ) -> None:
-        payload = {
-            "url": "mariadb+pymysql://mariadb_user:mariadb_pw@mariadb_example/mariadb_example"
-        }
-
-        auth_header = generate_auth_header(scopes=[CONNECTION_CREATE_OR_UPDATE])
-        resp = api_client.put(
-            url,
-            headers=auth_header,
-            json=payload,
-        )
-        assert resp.status_code == 200
-        body = json.loads(resp.text)
-
-        assert (
-            body["msg"]
-            == f"Secrets updated for ConnectionConfig with key: {connection_config_mariadb.key}."
-        )
-        assert body["failure_reason"] is None
-        assert body["test_status"] == "succeeded"
-        db.refresh(connection_config_mariadb)
-        assert connection_config_mariadb.secrets == {
-            "host": None,
-            "port": None,
-            "dbname": None,
-            "username": None,
-            "password": None,
-            "url": payload["url"],
+            "port": 3306,
         }
         assert connection_config_mariadb.last_test_timestamp is not None
         assert connection_config_mariadb.last_test_succeeded is True
@@ -718,7 +633,10 @@ class TestMariaDBConnectionTestSecretsAPI:
         connection_config_mariadb,
     ) -> None:
         assert connection_config_mariadb.last_test_timestamp is None
-        connection_config_mariadb.secrets = {"host": "invalid_host"}
+        connection_config_mariadb.secrets = {
+            "host": "invalid_host",
+            "dbname": "mariadb_example",
+        }
         connection_config_mariadb.save(db)
 
         auth_header = generate_auth_header(scopes=[CONNECTION_READ])
@@ -777,12 +695,28 @@ class TestMariaDBConnector:
         db: Session,
         generate_auth_header,
         connection_config_mariadb,
+        mariadb_example_secrets,
     ) -> None:
         connector = get_connector(connection_config_mariadb)
         assert connector.__class__ == MariaDBConnector
 
         client = connector.client()
         assert client.__class__ == Engine
+        assert connector.test_connection() == ConnectionTestStatus.succeeded
+
+        connection_config_mariadb.secrets = {
+            "url": str(
+                URL.create(
+                    "mariadb+pymysql",
+                    username=mariadb_example_secrets["username"],
+                    password=mariadb_example_secrets["password"],
+                    host=mariadb_example_secrets["host"],
+                    database=mariadb_example_secrets["dbname"],
+                )
+            )
+        }
+        connection_config_mariadb.save(db)
+        connector = get_connector(connection_config_mariadb)
         assert connector.test_connection() == ConnectionTestStatus.succeeded
 
         connection_config_mariadb.secrets = {"host": "bad_host"}
@@ -814,7 +748,6 @@ class TestMicrosoftSQLServerConnection:
             "host": "mssql_example",
             "port": 1433,
             "dbname": "mssql_example",
-            "url": None,
         }
         resp = api_client.put(
             url_put_secret,
@@ -828,7 +761,7 @@ class TestMicrosoftSQLServerConnection:
             == f"Secrets updated for ConnectionConfig with key: {connection_config_mssql.key}."
         )
         assert body["test_status"] == "failed"
-        assert "Connection error." == body["failure_reason"]
+        assert "Operational Error connecting to mssql db." == body["failure_reason"]
         db.refresh(connection_config_mssql)
 
         assert connection_config_mssql.secrets == {
@@ -837,7 +770,6 @@ class TestMicrosoftSQLServerConnection:
             "host": "mssql_example",
             "port": 1433,
             "dbname": "mssql_example",
-            "url": None,
         }
         assert connection_config_mssql.last_test_timestamp is not None
         assert connection_config_mssql.last_test_succeeded is False
@@ -880,46 +812,6 @@ class TestMicrosoftSQLServerConnection:
             "host": "mssql_example",
             "port": 1433,
             "dbname": "mssql_example",
-            "url": None,
-        }
-        assert connection_config_mssql.last_test_timestamp is not None
-        assert connection_config_mssql.last_test_succeeded is True
-
-    def test_mssql_db_connection_connect_with_url(
-        self,
-        url_put_secret,
-        api_client: TestClient,
-        db: Session,
-        generate_auth_header,
-        connection_config_mssql,
-    ) -> None:
-        payload = {
-            "url": "mssql+pyodbc://sa:Mssql_pw1@mssql_example:1433/mssql_example?driver=ODBC+Driver+17+for+SQL+Server"
-        }
-
-        auth_header = generate_auth_header(scopes=[CONNECTION_CREATE_OR_UPDATE])
-        resp = api_client.put(
-            url_put_secret,
-            headers=auth_header,
-            json=payload,
-        )
-        assert resp.status_code == 200
-        body = json.loads(resp.text)
-
-        assert (
-            body["msg"]
-            == f"Secrets updated for ConnectionConfig with key: {connection_config_mssql.key}."
-        )
-        assert body["failure_reason"] is None
-        assert body["test_status"] == "succeeded"
-        db.refresh(connection_config_mssql)
-        assert connection_config_mssql.secrets == {
-            "username": None,
-            "password": None,
-            "host": None,
-            "port": None,
-            "dbname": None,
-            "url": payload["url"],
         }
         assert connection_config_mssql.last_test_timestamp is not None
         assert connection_config_mssql.last_test_succeeded is True
@@ -973,7 +865,12 @@ class TestMicrosoftSQLServerConnection:
         connection_config_mssql,
     ) -> None:
         assert connection_config_mssql.last_test_timestamp is None
-        connection_config_mssql.secrets = {"host": "invalid_host"}
+        connection_config_mssql.secrets = {
+            "host": "invalid_host",
+            "username": "sa",
+            "password": "Mssql_pw1",
+            "dbname": "mssql_example",
+        }
         connection_config_mssql.save(db)
 
         auth_header = generate_auth_header(scopes=[CONNECTION_READ])
@@ -988,7 +885,7 @@ class TestMicrosoftSQLServerConnection:
         assert connection_config_mssql.last_test_timestamp is not None
         assert connection_config_mssql.last_test_succeeded is False
         assert body["test_status"] == "failed"
-        assert "Connection error." == body["failure_reason"]
+        assert "Operational Error connecting to mssql db." == body["failure_reason"]
         assert (
             body["msg"]
             == f"Test completed for ConnectionConfig with key: {connection_config_mssql.key}."
@@ -1028,12 +925,28 @@ class TestMicrosoftSQLServerConnection:
         db: Session,
         generate_auth_header,
         connection_config_mssql,
+        mssql_example_secrets,
     ) -> None:
         connector = get_connector(connection_config_mssql)
         assert connector.__class__ == MicrosoftSQLServerConnector
 
         client = connector.client()
         assert client.__class__ == Engine
+        assert connector.test_connection() == ConnectionTestStatus.succeeded
+
+        connection_config_mssql.secrets = {
+            "url": str(
+                URL.create(
+                    "mssql+pymssql",
+                    username=mssql_example_secrets["username"],
+                    password=mssql_example_secrets["password"],
+                    host=mssql_example_secrets["host"],
+                    database=mssql_example_secrets["dbname"],
+                )
+            )
+        }
+        connection_config_mssql.save(db)
+        connector = get_connector(connection_config_mssql)
         assert connector.test_connection() == ConnectionTestStatus.succeeded
 
         connection_config_mssql.secrets = {"host": "bad_host"}
@@ -1052,6 +965,7 @@ class TestMongoConnector:
         db: Session,
         generate_auth_header,
         mongo_connection_config,
+        mongo_example_secrets,
     ) -> None:
         connector = get_connector(mongo_connection_config)
         assert connector.__class__ == MongoDBConnector
@@ -1060,7 +974,27 @@ class TestMongoConnector:
         assert client.__class__ == MongoClient
         assert connector.test_connection() == ConnectionTestStatus.succeeded
 
-        mongo_connection_config.secrets = {"host": "bad_host"}
+        mongo_connection_config.secrets = {
+            "url": str(
+                URL.create(
+                    "mongodb",
+                    username=mongo_example_secrets["username"],
+                    password=mongo_example_secrets["password"],
+                    host=mongo_example_secrets["host"],
+                    database=mongo_example_secrets["defaultauthdb"],
+                )
+            )
+        }
+        mongo_connection_config.save(db)
+        connector = get_connector(mongo_connection_config)
+        assert connector.test_connection() == ConnectionTestStatus.succeeded
+
+        mongo_connection_config.secrets = {
+            "host": "bad_host",
+            "username": "mongo_user",
+            "password": "mongo_pass",
+            "defaultauthdb": "mongo_test",
+        }
         mongo_connection_config.save(db)
         connector = get_connector(mongo_connection_config)
         with pytest.raises(ConnectionException):
@@ -1083,7 +1017,13 @@ class TestMongoConnectionPutSecretsAPI:
         mongo_connection_config,
     ) -> None:
         auth_header = generate_auth_header(scopes=[CONNECTION_CREATE_OR_UPDATE])
-        payload = {"host": "incorrect_host", "port": "1234"}
+        payload = {
+            "host": "incorrect_host",
+            "port": 1234,
+            "username": "mongo_user",
+            "password": "mongo_pass",
+            "defaultauthdb": "mongo_test",
+        }
         resp = api_client.put(
             url,
             headers=auth_header,
@@ -1105,10 +1045,9 @@ class TestMongoConnectionPutSecretsAPI:
         assert mongo_connection_config.secrets == {
             "host": "incorrect_host",
             "port": 1234,
-            "username": None,
-            "password": None,
-            "defaultauthdb": None,
-            "url": None,
+            "username": "mongo_user",
+            "password": "mongo_pass",
+            "defaultauthdb": "mongo_test",
         }
         assert mongo_connection_config.last_test_timestamp is not None
         assert mongo_connection_config.last_test_succeeded is False
@@ -1149,53 +1088,13 @@ class TestMongoConnectionPutSecretsAPI:
             "defaultauthdb": "mongo_test",
             "username": "mongo_user",
             "password": "mongo_pass",
-            "url": None,
-            "port": None,
+            "port": 27017,
         }
-        assert mongo_connection_config.last_test_timestamp is not None
-        assert mongo_connection_config.last_test_succeeded is True
-
-    def test_mongo_db_connection_connect_with_url(
-        self,
-        url,
-        api_client: TestClient,
-        db: Session,
-        generate_auth_header,
-        mongo_connection_config,
-    ) -> None:
-        payload = {"url": "mongodb://mongo_user:mongo_pass@mongodb_example/mongo_test"}
-
-        auth_header = generate_auth_header(scopes=[CONNECTION_CREATE_OR_UPDATE])
-        resp = api_client.put(
-            url,
-            headers=auth_header,
-            json=payload,
-        )
-        assert resp.status_code == 200
-        body = json.loads(resp.text)
-
-        assert (
-            body["msg"]
-            == f"Secrets updated for ConnectionConfig with key: {mongo_connection_config.key}."
-        )
-        assert body["failure_reason"] is None
-        assert body["test_status"] == "succeeded"
-        db.refresh(mongo_connection_config)
-        assert mongo_connection_config.secrets == {
-            "host": None,
-            "port": None,
-            "defaultauthdb": None,
-            "username": None,
-            "password": None,
-            "url": payload["url"],
-        }
-
         assert mongo_connection_config.last_test_timestamp is not None
         assert mongo_connection_config.last_test_succeeded is True
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_mailchimp
 class TestSaaSConnectionPutSecretsAPI:
     @pytest.fixture(scope="function")
     def url(
@@ -1300,20 +1199,17 @@ class TestSaaSConnectionPutSecretsAPI:
         mailchimp_connection_config,
     ):
         auth_header = generate_auth_header(scopes=[CONNECTION_CREATE_OR_UPDATE])
+        # extra fields should be ignored
         payload = {**mailchimp_connection_config.secrets, "extra": "junk"}
         resp = api_client.put(
             url,
             headers=auth_header,
             json=payload,
         )
-        assert resp.status_code == 422
-
-        body = json.loads(resp.text)
-        assert body["detail"][0]["msg"] == "extra fields not permitted"
+        assert resp.status_code == 200
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_mailchimp
 class TestSaaSConnectionTestSecretsAPI:
     @pytest.fixture(scope="function")
     def url(
@@ -1428,7 +1324,6 @@ class TestSaaSConnectionTestSecretsAPI:
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_mailchimp
 class TestSaasConnectorIntegration:
     def test_saas_connector(
         self, db: Session, mailchimp_connection_config, mailchimp_dataset_config

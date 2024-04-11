@@ -3,14 +3,14 @@ from typing import Any, Dict, Generator
 import pytest
 from sqlalchemy.orm import Session
 
-from fides.api.ctl.sql_models import Dataset as CtlDataset
-from fides.api.ops.models.connectionconfig import (
+from fides.api.models.connectionconfig import (
     AccessLevel,
     ConnectionConfig,
     ConnectionType,
 )
-from fides.api.ops.models.datasetconfig import DatasetConfig
-from fides.api.ops.util.saas_util import (
+from fides.api.models.datasetconfig import DatasetConfig
+from fides.api.models.sql_models import Dataset as CtlDataset
+from fides.api.util.saas_util import (
     load_config_with_replacement,
     load_dataset_with_replacement,
 )
@@ -24,7 +24,7 @@ def saas_erasure_order_secrets():
 @pytest.fixture
 def saas_erasure_order_config() -> Dict:
     return load_config_with_replacement(
-        "data/saas/config/saas_erasure_order_config.yml",
+        "tests/fixtures/saas/test_data/saas_erasure_order_config.yml",
         "<instance_fides_key>",
         "saas_erasure_order_instance",
     )
@@ -33,7 +33,7 @@ def saas_erasure_order_config() -> Dict:
 @pytest.fixture
 def saas_erasure_order_dataset() -> Dict:
     return load_dataset_with_replacement(
-        "data/saas/dataset/saas_erasure_order_dataset.yml",
+        "tests/fixtures/saas/test_data/saas_erasure_order_dataset.yml",
         "<instance_fides_key>",
         "saas_erasure_order_instance",
     )[0]

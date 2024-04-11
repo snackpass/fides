@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fideslang.models import (
     DataCategory,
-    DataQualifier,
     Dataset,
     DatasetCollection,
     DataSubject,
@@ -18,8 +17,8 @@ from fideslang.models import (
     Taxonomy,
 )
 
+from fides.config import FidesConfig
 from fides.core import evaluate
-from fides.core.config import FidesConfig
 
 
 # Helpers
@@ -33,10 +32,6 @@ def evaluation_key_validation_basic_taxonomy() -> Taxonomy:
         data_category=[
             DataCategory(fides_key="data_category_1"),
             DataCategory(fides_key="data_category_2"),
-        ],
-        data_qualifier=[
-            DataQualifier(fides_key="data_qualifier_1"),
-            DataQualifier(fides_key="data_qualifier_2"),
         ],
         data_use=[DataUse(fides_key="data_use_1"), DataUse(fides_key="data_use_2")],
     )
@@ -65,7 +60,6 @@ def create_policy_rule_with_keys(
     data_categories: List[str],
     data_uses: List[str],
     data_subjects: List[str],
-    data_qualifier: str,
 ) -> PolicyRule:
     return PolicyRule(
         name="policy_rule_1",
@@ -81,7 +75,6 @@ def create_policy_rule_with_keys(
             "values": data_subjects,
             "matches": MatchesEnum.ANY,
         },
-        data_qualifier=data_qualifier,
     )
 
 
@@ -111,8 +104,7 @@ def test_populate_referenced_keys_recursively(test_config: FidesConfig) -> None:
                         PrivacyDeclaration(
                             name="privacy_declaration_1",
                             data_categories=["user.contact.email"],
-                            data_use="provide.service",
-                            data_qualifier="aggregated.anonymized",
+                            data_use="essential.service",
                             data_subjects=["customer"],
                         )
                     ],
@@ -132,14 +124,7 @@ def test_populate_referenced_keys_recursively(test_config: FidesConfig) -> None:
     )
 
     populated_data_uses = [data_use.fides_key for data_use in result_taxonomy.data_use]
-    assert sorted(populated_data_uses) == sorted(["provide.service", "provide"])
-
-    populated_qualifiers = [
-        data_qualifier.fides_key for data_qualifier in result_taxonomy.data_qualifier
-    ]
-    assert sorted(populated_qualifiers) == sorted(
-        ["aggregated.anonymized", "aggregated"]
-    )
+    assert sorted(populated_data_uses) == sorted(["essential.service", "essential"])
 
     populated_subjects = [
         data_subject.fides_key for data_subject in result_taxonomy.data_subject
@@ -166,8 +151,7 @@ def test_populate_referenced_keys_fails_missing_keys(
                             PrivacyDeclaration(
                                 name="privacy_declaration_1",
                                 data_categories=["missing.category"],
-                                data_use="provide.service",
-                                data_qualifier="aggregated.anonymized",
+                                data_use="essential.service",
                                 data_subjects=["customer"],
                             )
                         ],
@@ -196,7 +180,7 @@ def test_hydrate_missing_resources(test_config: FidesConfig) -> None:
                 name="test_dc",
                 fides_key="test_dc",
                 description="test description",
-                system_dependencies=["key_3", "key_4"],
+                egress=[{"fides_key": "key_3"}, {"fides_key": "key_4"}],
                 system_type="test",
                 privacy_declarations=None,
             )
@@ -207,7 +191,7 @@ def test_hydrate_missing_resources(test_config: FidesConfig) -> None:
         headers=test_config.user.auth_header,
         dehydrated_taxonomy=dehydrated_taxonomy,
         missing_resource_keys={
-            "user.credentials",
+            "user.authorization.credentials",
             "user",
         },
     )
@@ -576,16 +560,13 @@ def test_failed_evaluation_error_message(
                               'system (customer_data_sharing_system) failed '
                               'rule (reject_targeted_marketing) from policy '
                               '(primary_privacy_policy). Violated usage of '
-                              'data categories (user.political_opinion) with '
-                              'qualifier '
-                              '(aggregated.anonymized.unlinked_pseudonymized.pseudonymized.identified) '
-                              'for data uses '
-                              '(third_party_sharing.payment_processing) and '
+                              'data categories '
+                              '(user.demographic.political_opinion) for data'
+                              'uses (marketing.advertising.third_party) and'
                               'subjects (customer)',
-                    'violating_attributes': { 'data_categories': [ 'user.political_opinion'],
-                                              'data_qualifier': 'aggregated.anonymized.unlinked_pseudonymized.pseudonymized.identified',
+                    'violating_attributes': { 'data_categories': [ 'user.demographic.political_opinion'],
                                               'data_subjects': ['customer'],
-                                              'data_uses': [ 'third_party_sharing.payment_processing']}}]}
+                                              'data_uses': [ 'marketing.advertising.third_party']}}]}
                                               """
     )
     with pytest.raises(SystemExit):
@@ -598,7 +579,7 @@ def test_failed_evaluation_error_message(
     captured_out = string_cleaner(capsys.readouterr().out)
     print(f"Expected output:\n{expected_error_message}")
     print(f"Captured output:\n{captured_out}")
-    assert expected_error_message in captured_out
+    assert captured_out.endswith(expected_error_message)
 
 
 @pytest.mark.unit

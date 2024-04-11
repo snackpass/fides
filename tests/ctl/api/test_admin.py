@@ -2,9 +2,8 @@
 import pytest
 from starlette.testclient import TestClient
 
-from fides.api.ctl.routes.util import API_PREFIX
-from fides.api.ctl.utils import errors
-from fides.core.config import FidesConfig
+from fides.api.util.endpoint_utils import API_PREFIX
+from fides.config import FidesConfig
 
 
 def test_db_reset_dev_mode_enabled(
@@ -17,7 +16,9 @@ def test_db_reset_dev_mode_enabled(
         headers=test_config.user.auth_header,
     )
     assert response.status_code == 200
-    assert response.json() == {"data": {"message": "fides database reset"}}
+    assert response.json() == {
+        "data": {"message": "Fides database action performed successfully: reset"}
+    }
 
 
 def test_db_reset_dev_mode_disabled(
@@ -25,11 +26,13 @@ def test_db_reset_dev_mode_disabled(
     test_config_dev_mode_disabled: FidesConfig,  # temporarily switches off config.dev_mode
     test_client: TestClient,
 ) -> None:
-    with pytest.raises(
-        errors.FunctionalityNotConfigured,
-        match="unable to reset fides database outside of dev_mode.",
-    ):
-        test_client.post(
-            test_config.cli.server_url + API_PREFIX + "/admin/db/reset/",
-            headers=test_config.user.auth_header,
-        )
+    error_message = (
+        "Resetting the application database outside of dev_mode is not supported."
+    )
+    response = test_client.post(
+        test_config.cli.server_url + API_PREFIX + "/admin/db/reset/",
+        headers=test_config.user.auth_header,
+    )
+
+    assert response.status_code == 501
+    assert response.json()["detail"] == error_message

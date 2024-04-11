@@ -4,8 +4,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import QueuePool
 
-from fides.api.ops.tasks import DatabaseTask, _create_celery
-from fides.core.config import CONFIG, get_config
+from fides.api.tasks import DatabaseTask, _create_celery
+from fides.config import CONFIG, get_config
 
 
 @pytest.fixture
@@ -29,6 +29,21 @@ def test_create_task(celery_session_app, celery_session_worker):
     celery_session_worker.reload()
     assert multiply.run(4, 4) == 16
     assert multiply.delay(4, 4).get(timeout=10) == 16
+
+
+def test_task_config_is_test_mode(celery_session_app, celery_session_worker):
+    @celery_session_app.task
+    def get_virtualised_worker_config():
+        return get_config().test_mode
+
+    # Force `celery_app` to register our new task
+    # See: https://github.com/celery/celery/issues/3642#issuecomment-369057682
+    celery_session_worker.reload()
+    sync_is_test_mode = get_virtualised_worker_config.run()
+    async_is_test_mode = get_virtualised_worker_config.delay().get(timeout=10)
+
+    assert sync_is_test_mode
+    assert async_is_test_mode
 
 
 def test_celery_default_config() -> None:

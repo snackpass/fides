@@ -25,6 +25,7 @@ export type SaaSConfig = {
   type: string;
   description: string;
   version: string;
+  replaceable?: boolean;
   connector_params: Array<ConnectorParam>;
   external_references?: Array<ExternalDatasetReference>;
   client_config: ClientConfig;
@@ -33,4 +34,5 @@ export type SaaSConfig = {
   data_protection_request?: SaaSRequest;
   rate_limit_config?: RateLimitConfig;
   consent_requests?: ConsentRequestMap;
+  user_guide?: string;
 };

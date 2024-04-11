@@ -4,25 +4,23 @@ from typing import List
 import pytest
 import requests
 
-from fides.api.ops.graph.graph import DatasetGraph
-from fides.api.ops.models.privacy_request import PrivacyRequest
-from fides.api.ops.schemas.redis_cache import Identity
-from fides.api.ops.service.connectors import get_connector
-from fides.api.ops.task import graph_task
-from fides.api.ops.task.filter_results import filter_data_categories
-from fides.api.ops.task.graph_task import get_cached_data_for_erasures
-from fides.core.config import CONFIG
+from fides.api.graph.graph import DatasetGraph
+from fides.api.models.privacy_request import PrivacyRequest
+from fides.api.schemas.redis_cache import Identity
+from fides.api.service.connectors import get_connector
+from fides.api.task import graph_task
+from fides.api.task.filter_results import filter_data_categories
+from fides.api.task.graph_task import get_cached_data_for_erasures
+from fides.config import CONFIG
 from tests.ops.graph.graph_test_util import assert_rows_match
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_stripe
 def test_stripe_connection_test(stripe_connection_config) -> None:
     get_connector(stripe_connection_config).test_connection()
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_stripe
 @pytest.mark.asyncio
 async def test_stripe_access_request_task_with_email(
     db,
@@ -251,7 +249,7 @@ async def test_stripe_access_request_task_with_email(
 
     assert_rows_match(
         v[f"{dataset_name}:invoice"],
-        min_size=2,
+        min_size=1,
         keys=[
             "account_country",
             "account_name",
@@ -394,55 +392,12 @@ async def test_stripe_access_request_task_with_email(
         min_size=2,
         keys=[
             "billing_details",
-            "card",
             "created",
             "customer",
             "id",
             "livemode",
             "object",
             "type",
-        ],
-    )
-
-    assert_rows_match(
-        v[f"{dataset_name}:subscription"],
-        min_size=1,
-        keys=[
-            "application_fee_percent",
-            "automatic_tax",
-            "billing_cycle_anchor",
-            "billing_thresholds",
-            "cancel_at",
-            "cancel_at_period_end",
-            "canceled_at",
-            "collection_method",
-            "created",
-            "current_period_end",
-            "current_period_start",
-            "customer",
-            "days_until_due",
-            "default_payment_method",
-            "default_source",
-            "default_tax_rates",
-            "discount",
-            "ended_at",
-            "id",
-            "latest_invoice",
-            "livemode",
-            "next_pending_invoice_item_invoice",
-            "object",
-            "pause_collection",
-            "payment_settings",
-            "pending_invoice_item_interval",
-            "pending_setup_intent",
-            "pending_update",
-            "schedule",
-            "start_date",
-            "status",
-            "test_clock",
-            "transfer_data",
-            "trial_end",
-            "trial_start",
         ],
     )
 
@@ -641,7 +596,6 @@ async def test_stripe_access_request_task_with_email(
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_stripe
 @pytest.mark.asyncio
 async def test_stripe_access_request_task_with_phone_number(
     db,
@@ -707,7 +661,6 @@ async def test_stripe_access_request_task_with_phone_number(
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_stripe
 @pytest.mark.asyncio
 async def test_stripe_erasure_request_task(
     db,
@@ -937,7 +890,7 @@ async def test_stripe_erasure_request_task(
 
     assert_rows_match(
         v[f"{dataset_name}:invoice"],
-        min_size=2,
+        min_size=1,
         keys=[
             "account_country",
             "account_name",
@@ -1080,7 +1033,6 @@ async def test_stripe_erasure_request_task(
         min_size=2,
         keys=[
             "billing_details",
-            "card",
             "created",
             "customer",
             "id",
@@ -1172,7 +1124,7 @@ async def test_stripe_erasure_request_task(
         f"{dataset_name}:card": 1,
         f"{dataset_name}:customer_balance_transaction": 0,
         f"{dataset_name}:payment_intent": 0,
-        f"{dataset_name}:payment_method": 2,
+        f"{dataset_name}:payment_method": 3,
         f"{dataset_name}:credit_note": 0,
         f"{dataset_name}:bank_account": 1,
         f"{dataset_name}:subscription": 1,
@@ -1202,8 +1154,8 @@ async def test_stripe_erasure_request_task(
         headers=headers,
         params={"object": "card"},
     )
-    card = response.json()["data"][0]
-    assert card["name"] == "MASKED"
+    cards = response.json()["data"]
+    assert cards == []
 
     # payment method
     response = requests.get(

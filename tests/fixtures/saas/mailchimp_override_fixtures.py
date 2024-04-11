@@ -4,33 +4,31 @@ from typing import Any, Dict, Generator
 import pytest
 from sqlalchemy.orm import Session
 
-from fides.api.ctl.sql_models import Dataset as CtlDataset
-from fides.api.ops.models.connectionconfig import (
+from fides.api.db import session
+from fides.api.models.connectionconfig import (
     AccessLevel,
     ConnectionConfig,
     ConnectionType,
 )
-from fides.api.ops.models.datasetconfig import DatasetConfig
-from fides.api.ops.schemas.saas.saas_config import SaaSRequest
-from fides.api.ops.schemas.saas.shared_schemas import HTTPMethod, SaaSRequestParams
-from fides.api.ops.service.connectors.saas_connector import SaaSConnector
-from fides.api.ops.util.saas_util import load_config
-from fides.lib.db import session
+from fides.api.models.datasetconfig import DatasetConfig
+from fides.api.models.sql_models import Dataset as CtlDataset
+from fides.api.schemas.saas.saas_config import SaaSRequest
+from fides.api.schemas.saas.shared_schemas import HTTPMethod, SaaSRequestParams
+from fides.api.service.connectors.saas_connector import SaaSConnector
+from fides.api.util.saas_util import load_config
 from tests.fixtures.application_fixtures import load_dataset
 
 
 @pytest.fixture
 def mailchimp_override_config() -> Dict[str, Any]:
-    return load_config(
-        "data/saas/config/request_override/mailchimp_override_config.yml"
-    )
+    return load_config("tests/fixtures/saas/test_data/mailchimp_override_config.yml")
 
 
 @pytest.fixture
 def mailchimp_override_dataset() -> Dict[str, Any]:
-    return load_dataset(
-        "data/saas/dataset/request_override/mailchimp_override_dataset.yml"
-    )[0]
+    return load_dataset("tests/fixtures/saas/test_data/mailchimp_override_dataset.yml")[
+        0
+    ]
 
 
 @pytest.fixture(scope="function")

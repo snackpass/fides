@@ -3,8 +3,7 @@ dataset:
     name: Sample DB Dataset
     description: This is a Sample Database Dataset
     data_categories:
-      - user.political_opinion
-    data_qualifier: aggregated.anonymized.unlinked_pseudonymized.pseudonymized
+      - user.demographic.political_opinion
     collections:
       - name: users
         description: User's information
@@ -13,7 +12,6 @@ dataset:
             description: A First Name Field
             data_categories:
               - user.name
-            data_qualifier: aggregated.anonymized.unlinked_pseudonymized.pseudonymized.identified
 
 system:
   - fides_key: customer_data_sharing_system
@@ -24,13 +22,11 @@ system:
       - name: Share Political Opinions
         data_categories:
           - user
-        data_use: advertising
-        data_qualifier: aggregated.anonymized.unlinked_pseudonymized.pseudonymized.identified
+        data_use: marketing.advertising
         data_subjects:
           - customer
         dataset_references:
           - test_db_dataset_failing_dataset
-    system_dependencies: []
 
 policy:
   - fides_key: primary_privacy_policy
@@ -42,13 +38,12 @@ policy:
         data_categories:
           matches: ANY
           values:
-            - user.political_opinion
+            - user.demographic.political_opinion
         data_uses:
           matches: ANY
           values:
-            - advertising
+            - marketing.advertising
         data_subjects:
           matches: ANY
           values:
             - customer
-        data_qualifier: aggregated

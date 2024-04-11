@@ -8,7 +8,8 @@ import {
 } from "@fidesui/react";
 import { Form, Formik } from "formik";
 
-import { PrivacyDeclaration } from "~/types/api";
+import { FormGuard } from "~/features/common/hooks/useIsAnyFormDirty";
+import { PrivacyDeclarationResponse } from "~/types/api";
 
 import {
   DataProps,
@@ -18,30 +19,37 @@ import {
 } from "./PrivacyDeclarationForm";
 
 interface AccordionProps extends DataProps {
-  privacyDeclarations: PrivacyDeclaration[];
+  privacyDeclarations: PrivacyDeclarationResponse[];
   onEdit: (
-    oldDeclaration: PrivacyDeclaration,
-    newDeclaration: PrivacyDeclaration
-  ) => Promise<boolean>;
-  onDelete: (declaration: PrivacyDeclaration) => Promise<boolean>;
+    oldDeclaration: PrivacyDeclarationResponse,
+    newDeclaration: PrivacyDeclarationResponse
+  ) => Promise<PrivacyDeclarationResponse[] | undefined>;
+  onDelete: (
+    declaration: PrivacyDeclarationResponse
+  ) => Promise<PrivacyDeclarationResponse[] | undefined>;
+  includeCustomFields?: boolean;
+  includeCookies?: boolean;
 }
 
 const PrivacyDeclarationAccordionItem = ({
   privacyDeclaration,
   onEdit,
   onDelete,
+  includeCustomFields,
+  includeCookies,
   ...dataProps
-}: { privacyDeclaration: PrivacyDeclaration } & Omit<
+}: { privacyDeclaration: PrivacyDeclarationResponse } & Omit<
   AccordionProps,
   "privacyDeclarations"
 >) => {
-  const handleEdit = (newValues: PrivacyDeclaration) =>
-    onEdit(privacyDeclaration, newValues);
+  const handleEdit = (values: PrivacyDeclarationResponse) =>
+    onEdit(privacyDeclaration, values);
 
   const { initialValues, renderHeader, handleSubmit } =
     usePrivacyDeclarationForm({
       initialValues: privacyDeclaration,
       onSubmit: handleEdit,
+      privacyDeclarationId: privacyDeclaration.id,
       ...dataProps,
     });
 
@@ -56,6 +64,10 @@ const PrivacyDeclarationAccordionItem = ({
         >
           {({ dirty }) => (
             <Form data-testid={`${privacyDeclaration.data_use}-form`}>
+              <FormGuard
+                id={`${privacyDeclaration.id}-form`}
+                name={privacyDeclaration.id}
+              />
               <AccordionButton
                 py={4}
                 borderBottomWidth={isExpanded ? "0px" : "1px"}
@@ -72,7 +84,10 @@ const PrivacyDeclarationAccordionItem = ({
               <AccordionPanel backgroundColor="gray.50" pt={0}>
                 <Stack spacing={4}>
                   <PrivacyDeclarationFormComponents
+                    privacyDeclarationId={privacyDeclaration.id}
                     onDelete={onDelete}
+                    includeCustomFields={includeCustomFields}
+                    includeCookies={includeCookies}
                     {...dataProps}
                   />
                 </Stack>
@@ -100,7 +115,7 @@ const PrivacyDeclarationAccordion = ({
         // The closest is 'data_use' but that is only enforced on the frontend and can change
         // This results in the "Saved" indicator not appearing if you change the 'data_use' in the form
         // The fix would be to enforce a key, either on the backend, or through a significant workaround on the frontend
-        key={dec.data_use}
+        key={dec.id}
         privacyDeclaration={dec}
         {...props}
       />

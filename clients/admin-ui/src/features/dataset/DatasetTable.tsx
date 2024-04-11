@@ -10,13 +10,15 @@ import { Dataset, GenerateTypes } from "~/types/api";
 
 import {
   setActiveDatasetFidesKey,
-  useGetAllDatasetsQuery,
+  useGetAllFilteredDatasetsQuery,
 } from "./dataset.slice";
 
 const DatasetsTable = () => {
   const dispatch = useDispatch();
   const router = useRouter();
-  const { data: datasets } = useGetAllDatasetsQuery();
+  const { data: datasets } = useGetAllFilteredDatasetsQuery({
+    onlyUnlinkedDatasets: false,
+  });
   const features = useFeatures();
   usePollForClassifications({
     resourceType: GenerateTypes.DATASETS,
@@ -70,10 +72,12 @@ const DatasetsTable = () => {
               <Td pl={1}>{dataset.description}</Td>
               {features.plus ? (
                 <Td pl={1} data-testid={`dataset-status-${dataset.fides_key}`}>
-                  <ClassificationStatusBadge
-                    resource={GenerateTypes.DATASETS}
-                    status={classifyDataset?.status}
-                  />
+                  {classifyDataset?.status ? (
+                    <ClassificationStatusBadge
+                      resource={GenerateTypes.DATASETS}
+                      status={classifyDataset?.status}
+                    />
+                  ) : null}
                 </Td>
               ) : null}
             </Tr>

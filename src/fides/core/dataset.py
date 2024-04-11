@@ -4,47 +4,51 @@ from typing import Dict, List, Optional, Tuple
 import sqlalchemy
 from fideslang import manifests
 from fideslang.models import Dataset, DatasetCollection, DatasetField
+from fideslang.validation import FidesKey
 from pydantic import AnyHttpUrl
 from sqlalchemy.engine import Engine
+from sqlalchemy.sql import text
 
+from fides.common.utils import echo_green, echo_red
+from fides.connectors.aws import (
+    create_dynamodb_dataset,
+    describe_dynamo_tables,
+    get_aws_client,
+    get_dynamo_tables,
+)
 from fides.connectors.bigquery import get_bigquery_engine
-from fides.connectors.models import BigQueryConfig
+from fides.connectors.models import AWSConfig, BigQueryConfig
 from fides.core.api_helpers import list_server_resources
 from fides.core.parse import parse
-
-from .utils import (
-    check_fides_key,
-    echo_green,
-    echo_red,
-    generate_unique_fides_key,
-    get_db_engine,
-)
+from fides.core.utils import check_fides_key, generate_unique_fides_key, get_db_engine
 
 SCHEMA_EXCLUSION = {
     "postgresql": ["information_schema"],
     "mysql": ["mysql", "performance_schema", "sys", "information_schema"],
     "mssql": ["INFORMATION_SCHEMA", "guest", "sys"],
-    "snowflake": ["information_schema"],
+    "snowflake": ["INFORMATION_SCHEMA"],
     "redshift": ["information_schema"],
 }
 
 
 def get_all_server_datasets(
     url: AnyHttpUrl, headers: Dict[str, str], exclude_datasets: List[Dataset]
-) -> Optional[List[Dataset]]:
+) -> List[Dataset]:
     """
     Get a list of all of the Datasets that exist on the server. Excludes any datasets
     provided in exclude_datasets
     """
     exclude_dataset_keys = [dataset.fides_key for dataset in exclude_datasets]
-    dataset_list = list_server_resources(
-        url=url,
-        resource_type="dataset",
-        exclude_keys=exclude_dataset_keys,
-        headers=headers,
+    raw_dataset_list = (
+        list_server_resources(
+            url=url,
+            resource_type="dataset",
+            exclude_keys=[str(x) for x in exclude_dataset_keys],
+            headers=headers,
+        )
+        or []
     )
-    if not dataset_list:
-        return None
+    dataset_list = [Dataset.parse_obj(dataset) for dataset in raw_dataset_list]
 
     return dataset_list
 
@@ -65,16 +69,19 @@ def get_db_schemas(
     """
     Extract the schema, table and column names from a database given a sqlalchemy engine
     """
-    inspector = sqlalchemy.inspect(engine)
-    db_schemas: Dict[str, Dict[str, List]] = {}
-    for schema in inspector.get_schema_names():
-        if include_dataset_schema(schema=schema, database_type=engine.dialect.name):
-            db_schemas[schema] = {}
-            for table in inspector.get_table_names(schema=schema):
-                db_schemas[schema][table] = [
-                    column["name"]
-                    for column in inspector.get_columns(table, schema=schema)
-                ]
+    if engine.dialect.name != "snowflake":
+        inspector = sqlalchemy.inspect(engine)
+        db_schemas: Dict[str, Dict[str, List]] = {}
+        for schema in inspector.get_schema_names():
+            if include_dataset_schema(schema=schema, database_type=engine.dialect.name):
+                db_schemas[schema] = {}
+                for table in inspector.get_table_names(schema=schema):
+                    db_schemas[schema][table] = [
+                        column["name"]
+                        for column in inspector.get_columns(table, schema=schema)
+                    ]
+    else:
+        db_schemas = get_snowflake_schemas(engine=engine)
     return db_schemas
 
 
@@ -131,8 +138,8 @@ def make_dataset_key_unique(
     to avoid naming collisions.
     """
 
-    dataset.fides_key = generate_unique_fides_key(
-        dataset.fides_key, database_host, database_name
+    dataset.fides_key = FidesKey(
+        generate_unique_fides_key(dataset.fides_key, database_host, database_name)
     )
     dataset.meta = {"database_host": database_host, "database_name": database_name}
     return dataset
@@ -223,7 +230,7 @@ def print_dataset_db_scan_result(
     Prints uncategorized fields and raises an exception if coverage
     is lower than provided threshold.
     """
-    dataset_names = [dataset.name for dataset in datasets]
+    dataset_names: List[str] = [dataset.name or "" for dataset in datasets]
     output: str = "Successfully scanned the following datasets:\n"
     output += "\t{}\n".format("\n\t".join(dataset_names))
     echo_green(output)
@@ -247,24 +254,32 @@ def scan_dataset_db(
     coverage_threshold: int,
     url: AnyHttpUrl,
     headers: Dict[str, str],
+    local: bool = False,
 ) -> None:
     """
     Given a database connection string, fetches collections
     and fields and compares them to existing datasets and prioritizes
     datasets in a local manifest (if one is provided).
     """
-    manifest_taxonomy = parse(manifest_dir) if manifest_dir else None
-    manifest_datasets = manifest_taxonomy.dataset if manifest_taxonomy else []
-    server_datasets = get_all_server_datasets(
-        url=url, headers=headers, exclude_datasets=manifest_datasets
-    )
 
-    if not server_datasets:
+    if manifest_dir:
+        manifest_datasets = parse(manifest_dir).dataset or []
+    else:
+        manifest_datasets = []
+
+    if not local:
+        server_datasets = (
+            get_all_server_datasets(
+                url=url, headers=headers, exclude_datasets=manifest_datasets
+            )
+            or []
+        )
+    else:
         server_datasets = []
 
-    dataset_keys = [
-        dataset.fides_key for dataset in manifest_datasets + server_datasets
-    ]
+    all_datasets = manifest_datasets + server_datasets
+
+    dataset_keys = [dataset.fides_key for dataset in all_datasets]
     echo_green(
         "Loaded the following dataset manifests:\n\t{}".format(
             "\n\t".join(dataset_keys)
@@ -274,7 +289,7 @@ def scan_dataset_db(
     # Generate the collections and fields for the target database
     db_datasets = generate_db_datasets(connection_string=connection_string)
     uncategorized_fields, db_field_count = find_all_uncategorized_dataset_fields(
-        existing_datasets=manifest_datasets + server_datasets,
+        existing_datasets=all_datasets,
         source_datasets=db_datasets,
     )
     if db_field_count < 1:
@@ -351,3 +366,53 @@ def generate_bigquery_datasets(bigquery_config: BigQueryConfig) -> List[Dataset]
         for dataset in bigquery_datasets
     ]
     return unique_bigquery_datasets
+
+
+def generate_dynamo_db_datasets(aws_config: Optional[AWSConfig]) -> Dataset:
+    """
+    Given an AWS config, extract all DynamoDB tables/fields and generate corresponding datasets.
+    """
+    client = get_aws_client(service="dynamodb", aws_config=aws_config)
+    dynamo_tables = get_dynamo_tables(client)
+    described_dynamo_tables = describe_dynamo_tables(client, dynamo_tables)
+    dynamo_dataset = create_dynamodb_dataset(described_dynamo_tables)
+    return dynamo_dataset
+
+
+def get_snowflake_schemas(
+    engine: Engine,
+) -> Dict[str, Dict[str, List[str]]]:
+    """
+    Returns Datasets that match the case-sensitivity that may be
+    required by Snowflake. Iterates through each schema.table.column
+    the logged in user has access to.
+
+    This is currently required because of the inferred casing of Snowflake,
+    which defaults to upper-case. Anything else must be double-quoted, however
+    `snowflake-sqlalchemy` does not account for this in a flexible manner in
+    it's implementation of the `inspect()` method, forcing everything to what
+    is deemed to be normalized (i.e. lower-case).
+
+    The following code maintains casing as defined in Snowflake which combines
+    well with our DSR implementation in always using double-quoted query syntax.
+
+    It may be worthwhile for us to invest some time in resolving the core issue
+    and being able to fall back to using the connector.
+
+    Reference: https://github.com/snowflakedb/snowflake-sqlalchemy/issues/157
+    """
+    schema_cursor = engine.execute(text("SHOW SCHEMAS"))
+    db_schemas = [row[1] for row in schema_cursor]
+    metadata: Dict[str, Dict[str, List]] = {}
+    for schema in db_schemas:
+        if include_dataset_schema(schema=schema, database_type=engine.dialect.name):
+            metadata[schema] = {}
+            table_cursor = engine.execute(text(f'SHOW TABLES IN "{schema}"'))
+            db_tables = [row[1] for row in table_cursor]
+            for table in db_tables:
+                column_cursor = engine.execute(
+                    text(f'SHOW COLUMNS IN "{schema}"."{table}"')
+                )
+                columns = [row[2] for row in column_cursor]
+                metadata[schema][table] = columns
+    return metadata

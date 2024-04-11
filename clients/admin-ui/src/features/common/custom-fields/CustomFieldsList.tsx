@@ -1,9 +1,10 @@
-import { Center, Divider, Flex, Spinner, Text } from "@fidesui/react";
+import { Center, Flex, Spinner } from "@fidesui/react";
+import { Field, FieldInputProps } from "formik";
 
-import { ResourceTypes } from "~/types/api";
+import SystemFormInputGroup from "~/features/system/SystemFormInputGroup";
+import { AllowedTypes, ResourceTypes } from "~/types/api";
 
-import { CustomFieldSelector } from "./CustomFieldSelector";
-import { CustomFieldsModal } from "./CustomFieldsModal";
+import { CustomSelect, CustomTextInput } from "../form/inputs";
 import { useCustomFields } from "./hooks";
 
 type CustomFieldsListProps = {
@@ -16,7 +17,6 @@ export const CustomFieldsList = ({
   resourceType,
 }: CustomFieldsListProps) => {
   const {
-    definitionIdToCustomField,
     idToAllowListWithOptions,
     idToCustomFieldDefinition,
     isEnabled,
@@ -27,67 +27,88 @@ export const CustomFieldsList = ({
     resourceType,
   });
 
-  if (!isEnabled) {
+  if (!isEnabled || sortedCustomFieldDefinitionIds.length === 0) {
     return null;
   }
 
   return (
-    <Flex
-      flexDir="column"
-      mt={resourceType === ResourceTypes.SYSTEM ? "28px" : ""}
-      data-testid="custom-fields-list"
-    >
-      <Flex flexDir="column" gap="24px">
-        <Divider color="gray.200" />
-        <Flex flexDir="column" gap="12px">
-          <Text
-            color="gray.900"
-            fontSize="md"
-            fontWeight="semibold"
-            lineHeight="24px"
-          >
-            Custom fields
-          </Text>
+    <SystemFormInputGroup heading="Custom fields">
+      <Flex flexDir="column" data-testid="custom-fields-list">
+        <Flex flexDir="column" gap="24px">
+          {isLoading ? (
+            <Center>
+              <Spinner />
+            </Center>
+          ) : (
+            sortedCustomFieldDefinitionIds.length > 0 && (
+              <Flex flexDirection="column" gap="12px" paddingBottom="24px">
+                {sortedCustomFieldDefinitionIds.map((definitionId) => {
+                  const customFieldDefinition =
+                    idToCustomFieldDefinition.get(definitionId);
+                  if (!customFieldDefinition) {
+                    // This should never happen.
+                    return null;
+                  }
+
+                  const name = `customFieldValues.${customFieldDefinition.id}`;
+                  if (
+                    !customFieldDefinition.allow_list_id &&
+                    customFieldDefinition.field_type === AllowedTypes.STRING
+                  ) {
+                    return (
+                      <Field key={definitionId} name={name}>
+                        {({ field }: { field: FieldInputProps<string> }) => (
+                          <CustomTextInput
+                            {...field}
+                            label={customFieldDefinition.name}
+                            tooltip={customFieldDefinition.description}
+                            variant="stacked"
+                          />
+                        )}
+                      </Field>
+                    );
+                  }
+
+                  const allowList = idToAllowListWithOptions.get(
+                    customFieldDefinition.allow_list_id!
+                  );
+                  if (!allowList) {
+                    // This would only happen if the field definitions load before
+                    // the allow list data.
+                    return null;
+                  }
+
+                  const { options } = allowList;
+
+                  return (
+                    <Field key={definitionId} name={name}>
+                      {({
+                        field,
+                      }: {
+                        field: FieldInputProps<string | string[]>;
+                      }) => (
+                        <CustomSelect
+                          {...field}
+                          isClearable
+                          isFormikOnChange
+                          isMulti={
+                            customFieldDefinition.field_type !==
+                            AllowedTypes.STRING
+                          }
+                          label={customFieldDefinition.name}
+                          options={options}
+                          tooltip={customFieldDefinition.description}
+                          variant="stacked"
+                        />
+                      )}
+                    </Field>
+                  );
+                })}
+              </Flex>
+            )
+          )}
         </Flex>
-        <CustomFieldsModal resourceType={resourceType} />
-        {isLoading ? (
-          <Center>
-            <Spinner />
-          </Center>
-        ) : (
-          <Flex flexDirection="column" gap="12px" paddingBottom="24px">
-            {sortedCustomFieldDefinitionIds.map((definitionId) => {
-              const customFieldDefinition =
-                idToCustomFieldDefinition.get(definitionId);
-              if (!customFieldDefinition) {
-                // This should never happen.
-                return null;
-              }
-
-              const allowList = idToAllowListWithOptions.get(
-                customFieldDefinition.allow_list_id!
-              );
-              if (!allowList) {
-                // This would only happen if the field definitions load before
-                // the allow list data.
-                return null;
-              }
-
-              // This will be undefined when no value has been saved for this field.
-              const customField = definitionIdToCustomField.get(definitionId);
-
-              return (
-                <CustomFieldSelector
-                  allowList={allowList}
-                  customField={customField}
-                  customFieldDefinition={customFieldDefinition}
-                  key={`${definitionId}-${customField?.id}`}
-                />
-              );
-            })}
-          </Flex>
-        )}
       </Flex>
-    </Flex>
+    </SystemFormInputGroup>
   );
 };

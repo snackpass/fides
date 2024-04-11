@@ -1,10 +1,10 @@
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from hvac import Client
 from loguru import logger
 
-from fides.api.ops.common_exceptions import FidesopsException
+from fides.api.common_exceptions import FidesopsException
 
 params = {
     "VAULT_ADDR": os.environ.get("VAULT_ADDR"),
@@ -26,12 +26,13 @@ if all(params.values()):
         raise FidesopsException(f"Unable to create Vault client: {str(exc)}")
 
 
-def get_secrets(connector: str) -> Optional[Dict[str, Any]]:
+def get_secrets(connector: str) -> Dict[str, Any]:
     """Returns a map of secrets for the given connector."""
-    if not _client:
-        return
+    secrets_map: Dict[str, Any] = {}
 
-    secrets_map = {}
+    if not _client:
+        return secrets_map
+
     try:
         secrets = _client.secrets.kv.v2.read_secret_version(
             mount_point=_environment, path=connector

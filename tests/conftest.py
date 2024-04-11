@@ -10,45 +10,40 @@ import pytest
 import requests
 import yaml
 from fastapi.testclient import TestClient
-from fideslang import models
+from fideslang import DEFAULT_TAXONOMY, models
 from httpx import AsyncClient
 from loguru import logger
 from sqlalchemy.engine.base import Engine
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from toml import load as load_toml
 
-from fides.api.ctl.database.session import sync_engine
-
-# from fides.api.ctl.database.session import sync_engine, sync_session
-from fides.api.main import app
-from fides.api.ops.api.v1.scope_registry import SCOPE_REGISTRY
-from fides.api.ops.db.base import Base
-from fides.api.ops.models.privacy_request import generate_request_callback_jwe
-from fides.api.ops.schemas.messaging.messaging import MessagingServiceType
-
-# from fides.api.ops.tasks.scheduled.scheduler import scheduler
-from fides.api.ops.util.cache import get_cache
-
-# from fides.core import api
-from fides.core.config import get_config
-from fides.core.config.config_proxy import ConfigProxy
-from fides.lib.cryptography.schemas.jwt import (
+from fides.api.cryptography.schemas.jwt import (
     JWE_ISSUED_AT,
     JWE_PAYLOAD_CLIENT_ID,
     JWE_PAYLOAD_ROLES,
     JWE_PAYLOAD_SCOPES,
+    JWE_PAYLOAD_SYSTEMS,
 )
-from fides.lib.models.client import ClientDetail
-from fides.lib.models.fides_user import FidesUser
-from fides.lib.models.fides_user_permissions import FidesUserPermissions
-from fides.lib.oauth.jwt import generate_jwe
-from fides.lib.oauth.roles import (
-    PRIVACY_REQUEST_MANAGER,
-    VIEWER_AND_PRIVACY_REQUEST_MANAGER,
+from fides.api.db.ctl_session import sync_engine
+from fides.api.main import app
+from fides.api.models.privacy_request import generate_request_callback_jwe
+from fides.api.models.sql_models import Cookies, DataUse, PrivacyDeclaration
+from fides.api.oauth.jwt import generate_jwe
+from fides.api.oauth.roles import (
+    APPROVER,
+    CONTRIBUTOR,
+    OWNER,
+    VIEWER,
+    VIEWER_AND_APPROVER,
 )
+from fides.api.schemas.messaging.messaging import MessagingServiceType
+from fides.api.util.cache import get_cache
+from fides.common.api.scope_registry import SCOPE_REGISTRY
+from fides.config import get_config
+from fides.config.config_proxy import ConfigProxy
 from tests.fixtures.application_fixtures import *
 from tests.fixtures.bigquery_fixtures import *
+from tests.fixtures.dynamodb_fixtures import *
 from tests.fixtures.email_fixtures import *
 from tests.fixtures.fides_connector_example_fixtures import *
 from tests.fixtures.integration_fixtures import *
@@ -103,9 +98,45 @@ async def async_session(test_client):
         async_engine.dispose()
 
 
+# TODO: THIS IS A HACKY WORKAROUND.
+# This is specific for this test: test_get_resource_with_custom_field
+# this was added to account for weird error that only happens during a
+# long testing session. Something causes a config/schema change with
+# the DB. Giving the test a dedicated session fixes the issue and
+# matches how runtime works.
+# It does look like there MAY be a small bug that is unlikely to ever
+# occur during runtime. What surfaced the "benign" failure is the
+# `connection_configs` relationship on the `System` model. We are
+# unsure of which upstream test causes the error.
+# https://github.com/MagicStack/asyncpg/blob/2f20bae772d71122e64f424cc4124e2ebdd46a58/asyncpg/exceptions/_base.py#L120-L124
+# <class 'asyncpg.exceptions.InvalidCachedStatementError'>: cached statement plan is invalid due to a database schema or configuration change (SQLAlchemy asyncpg dialect will now invalidate all prepared caches in response to this exception)
+@pytest.fixture(scope="function")
+@pytest.mark.asyncio
+async def async_session_temp(test_client):
+    assert CONFIG.test_mode
+    assert requests.post == test_client.post
+
+    create_citext_extension(sync_engine)
+
+    async_engine = create_async_engine(
+        CONFIG.database.async_database_uri,
+        echo=False,
+    )
+
+    session_maker = sessionmaker(
+        async_engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    async with session_maker() as session:
+        yield session
+        session.close()
+        async_engine.dispose()
+
+
 @pytest.fixture(scope="session")
 def api_client():
     """Return a client used to make API requests"""
+
     with TestClient(app) as c:
         yield c
 
@@ -131,14 +162,60 @@ def event_loop():
 
 @pytest.fixture(scope="session")
 def config():
-
     CONFIG.test_mode = True
     yield CONFIG
 
 
+@pytest.fixture(scope="function")
+def enable_tcf(config):
+    assert config.test_mode
+    config.consent.tcf_enabled = True
+    yield config
+    config.consent.tcf_enabled = False
+
+
+@pytest.fixture(scope="function")
+def enable_ac(config):
+    assert config.test_mode
+    config.consent.ac_enabled = True
+    yield config
+    config.consent.ac_enabled = False
+
+
+@pytest.fixture(scope="function")
+def enable_override_vendor_purposes(config, db):
+    assert config.test_mode
+    config.consent.override_vendor_purposes = True
+    ApplicationConfig.create_or_update(
+        db,
+        data={"config_set": {"consent": {"override_vendor_purposes": True}}},
+    )
+    yield config
+    config.consent.override_vendor_purposes = False
+    ApplicationConfig.create_or_update(
+        db,
+        data={"config_set": {"consent": {"override_vendor_purposes": False}}},
+    )
+
+
+@pytest.fixture(scope="function")
+def enable_override_vendor_purposes_api_set(db):
+    """Enable override vendor purposes via api_set setting, not via traditional app config"""
+    ApplicationConfig.create_or_update(
+        db,
+        data={"api_set": {"consent": {"override_vendor_purposes": True}}},
+    )
+    yield
+    # reset back to false on teardown
+    ApplicationConfig.create_or_update(
+        db,
+        data={"api_set": {"consent": {"override_vendor_purposes": False}}},
+    )
+
+
 @pytest.fixture
 def loguru_caplog(caplog):
-    handler_id = logger.add(caplog.handler, format="{message}")
+    handler_id = logger.add(caplog.handler, format="{message} | {extra}")
     yield caplog
     logger.remove(handler_id)
 
@@ -207,18 +284,21 @@ def user(db):
     client = ClientDetail(
         hashed_secret="thisisatest",
         salt="thisisstillatest",
-        scopes=SCOPE_REGISTRY,
+        roles=[APPROVER],
+        scopes=[],
         user_id=user.id,
     )
 
-    FidesUserPermissions.create(
-        db=db, data={"user_id": user.id, "scopes": [PRIVACY_REQUEST_READ]}
-    )
+    FidesUserPermissions.create(db=db, data={"user_id": user.id, "roles": [APPROVER]})
 
     db.add(client)
     db.commit()
     db.refresh(client)
     yield user
+    try:
+        client.delete(db)
+    except ObjectDeletedError:
+        pass
 
 
 @pytest.fixture
@@ -288,12 +368,6 @@ def resources_dict():
             name="Custom Data Category",
             description="Custom Data Category",
         ),
-        "data_qualifier": models.DataQualifier(
-            organization_fides_key=1,
-            fides_key="custom_data_qualifier",
-            name="Custom Data Qualifier",
-            description="Custom Data Qualifier",
-        ),
         "dataset": models.Dataset(
             organization_fides_key=1,
             fides_key="test_sample_db_dataset",
@@ -313,14 +387,12 @@ def resources_dict():
                             description="A First Name Field",
                             path="another.path",
                             data_categories=["user.name"],
-                            data_qualifier="aggregated.anonymized.unlinked_pseudonymized.pseudonymized.identified",
                         ),
                         models.DatasetField(
                             name="Email",
                             description="User's Email",
                             path="another.another.path",
                             data_categories=["user.contact.email"],
-                            data_qualifier="aggregated.anonymized.unlinked_pseudonymized.pseudonymized.identified",
                         ),
                     ],
                 )
@@ -357,35 +429,26 @@ def resources_dict():
         "policy_rule": models.PolicyRule(
             name="Test Policy",
             data_categories=models.PrivacyRule(matches="NONE", values=[]),
-            data_uses=models.PrivacyRule(matches="NONE", values=["provide.service"]),
+            data_uses=models.PrivacyRule(matches="NONE", values=["essential.service"]),
             data_subjects=models.PrivacyRule(matches="ANY", values=[]),
-            data_qualifier="aggregated.anonymized.unlinked_pseudonymized.pseudonymized",
-        ),
-        "registry": models.Registry(
-            organization_fides_key=1,
-            fides_key="test_registry",
-            name="Test Registry",
-            description="Test Regsitry",
-            systems=[],
         ),
         "system": models.System(
             organization_fides_key=1,
-            registryId=1,
             fides_key="test_system",
             system_type="SYSTEM",
             name="Test System",
             description="Test Policy",
+            cookies=[],
             privacy_declarations=[
                 models.PrivacyDeclaration(
                     name="declaration-name",
                     data_categories=[],
-                    data_use="provide",
+                    data_use="essential",
                     data_subjects=[],
-                    data_qualifier="aggregated_data",
                     dataset_references=[],
+                    cookies=[],
                 )
             ],
-            system_dependencies=[],
         ),
     }
     yield resources_dict
@@ -558,7 +621,7 @@ def run_privacy_request_task(celery_session_app):
     registered to the `celery_app` fixture which uses the virtualised `celery_worker`
     """
     yield celery_session_app.tasks[
-        "fides.api.ops.service.privacy_request.request_runner_service.run_privacy_request"
+        "fides.api.service.privacy_request.request_runner_service.run_privacy_request"
     ]
 
 
@@ -569,6 +632,17 @@ def analytics_opt_out():
     CONFIG.user.analytics_opt_out = True
     yield
     CONFIG.user.analytics_opt_out = original_value
+
+
+@pytest.fixture
+def automatically_approved(db):
+    """Do not require manual request approval"""
+    original_value = CONFIG.execution.require_manual_request_approval
+    CONFIG.execution.require_manual_request_approval = False
+    ApplicationConfig.update_config_set(db, CONFIG)
+    yield
+    CONFIG.execution.require_manual_request_approval = original_value
+    ApplicationConfig.update_config_set(db, CONFIG)
 
 
 @pytest.fixture
@@ -649,13 +723,50 @@ def privacy_request_review_notification_disabled(db):
 def set_notification_service_type_mailgun(db):
     """Set default notification service type"""
     original_value = CONFIG.notifications.notification_service_type
-    CONFIG.notifications.notification_service_type = MessagingServiceType.MAILGUN.value
+    CONFIG.notifications.notification_service_type = MessagingServiceType.mailgun.value
     ApplicationConfig.update_config_set(db, CONFIG)
     db.commit()
     yield
     CONFIG.notifications.notification_service_type = original_value
     ApplicationConfig.update_config_set(db, CONFIG)
     db.commit()
+
+
+@pytest.fixture(scope="function")
+def set_notification_service_type_to_none(db):
+    """Overrides autouse fixture to remove default notification service type"""
+    original_value = CONFIG.notifications.notification_service_type
+    CONFIG.notifications.notification_service_type = None
+    ApplicationConfig.update_config_set(db, CONFIG)
+    yield
+    CONFIG.notifications.notification_service_type = original_value
+    ApplicationConfig.update_config_set(db, CONFIG)
+
+
+@pytest.fixture(scope="function")
+def set_notification_service_type_to_twilio_email(db):
+    """Overrides autouse fixture to set notification service type to twilio email"""
+    original_value = CONFIG.notifications.notification_service_type
+    CONFIG.notifications.notification_service_type = (
+        MessagingServiceType.twilio_email.value
+    )
+    ApplicationConfig.update_config_set(db, CONFIG)
+    yield
+    CONFIG.notifications.notification_service_type = original_value
+    ApplicationConfig.update_config_set(db, CONFIG)
+
+
+@pytest.fixture(scope="function")
+def set_notification_service_type_to_twilio_text(db):
+    """Overrides autouse fixture to set notification service type to twilio text"""
+    original_value = CONFIG.notifications.notification_service_type
+    CONFIG.notifications.notification_service_type = (
+        MessagingServiceType.twilio_text.value
+    )
+    ApplicationConfig.update_config_set(db, CONFIG)
+    yield
+    CONFIG.notifications.notification_service_type = original_value
+    ApplicationConfig.update_config_set(db, CONFIG)
 
 
 @pytest.fixture(scope="session")
@@ -665,16 +776,14 @@ def config_proxy(db):
 
 @pytest.fixture(scope="function")
 def oauth_role_client(db: Session) -> Generator:
-    """Return a client that has the admin role for authentication purposes"""
+    """Return a client that has all roles for authentication purposes
+    This is not a typical state but this client will then work with any
+    roles a token is given
+    """
     client = ClientDetail(
         hashed_secret="thisisatest",
         salt="thisisstillatest",
-        roles=[
-            ADMIN,
-            PRIVACY_REQUEST_MANAGER,
-            VIEWER,
-            VIEWER_AND_PRIVACY_REQUEST_MANAGER,
-        ],
+        roles=[OWNER, APPROVER, VIEWER, VIEWER_AND_APPROVER, CONTRIBUTOR],
     )  # Intentionally adding all roles here so the client will always
     # have a role that matches a role on a token for testing
     db.add(client)
@@ -717,11 +826,53 @@ def _generate_auth_role_header(
     return _build_jwt
 
 
-@pytest.fixture
-def admin_client(db):
-    """Return a client with an "admin" role for authentication purposes."""
+@pytest.fixture(scope="function")
+def oauth_system_client(db: Session, system) -> Generator:
+    """Return a client that has system for authentication purposes"""
     client = ClientDetail(
-        hashed_secret="thisisatest", salt="thisisstillatest", scopes=[], roles=[ADMIN]
+        hashed_secret="thisisatest",
+        salt="thisisstillatest",
+        systems=[system.id],
+    )  # Intentionally adding all roles here so the client will always
+    # have a role that matches a role on a token for testing
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+    yield client
+
+
+@pytest.fixture(scope="function")
+def generate_system_manager_header(
+    oauth_system_client,
+) -> Callable[[Any], Dict[str, str]]:
+    return _generate_system_manager_header(
+        oauth_system_client, CONFIG.security.app_encryption_key
+    )
+
+
+def _generate_system_manager_header(
+    oauth_system_client, app_encryption_key
+) -> Callable[[Any], Dict[str, str]]:
+    client_id = oauth_system_client.id
+
+    def _build_jwt(systems: List[str]) -> Dict[str, str]:
+        payload = {
+            JWE_PAYLOAD_ROLES: [],
+            JWE_PAYLOAD_CLIENT_ID: client_id,
+            JWE_ISSUED_AT: datetime.now().isoformat(),
+            JWE_PAYLOAD_SYSTEMS: systems,
+        }
+        jwe = generate_jwe(json.dumps(payload), app_encryption_key)
+        return {"Authorization": "Bearer " + jwe}
+
+    return _build_jwt
+
+
+@pytest.fixture
+def owner_client(db):
+    """Return a client with an "owner" role for authentication purposes."""
+    client = ClientDetail(
+        hashed_secret="thisisatest", salt="thisisstillatest", scopes=[], roles=[OWNER]
     )
     db.add(client)
     db.commit()
@@ -744,11 +895,11 @@ def viewer_client(db):
 
 
 @pytest.fixture
-def admin_user(db):
+def owner_user(db):
     user = FidesUser.create(
         db=db,
         data={
-            "username": "test_fides_admin_user",
+            "username": "test_fides_owner_user",
             "password": "TESTdcnG@wzJeu0&%3Qe2fGo7",
         },
     )
@@ -756,13 +907,37 @@ def admin_user(db):
         hashed_secret="thisisatest",
         salt="thisisstillatest",
         scopes=[],
-        roles=[ADMIN],
+        roles=[OWNER],
         user_id=user.id,
     )
 
-    FidesUserPermissions.create(
-        db=db, data={"user_id": user.id, "scopes": [], "roles": [ADMIN]}
+    FidesUserPermissions.create(db=db, data={"user_id": user.id, "roles": [OWNER]})
+
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+    yield user
+    user.delete(db)
+
+
+@pytest.fixture
+def approver_user(db):
+    user = FidesUser.create(
+        db=db,
+        data={
+            "username": "test_fides_viewer_user",
+            "password": "TESTdcnG@wzJeu0&%3Qe2fGo7",
+        },
     )
+    client = ClientDetail(
+        hashed_secret="thisisatest",
+        salt="thisisstillatest",
+        scopes=[],
+        roles=[APPROVER],
+        user_id=user.id,
+    )
+
+    FidesUserPermissions.create(db=db, data={"user_id": user.id, "roles": [APPROVER]})
 
     db.add(client)
     db.commit()
@@ -783,13 +958,38 @@ def viewer_user(db):
     client = ClientDetail(
         hashed_secret="thisisatest",
         salt="thisisstillatest",
-        scopes=[],
         roles=[VIEWER],
         user_id=user.id,
     )
 
+    FidesUserPermissions.create(db=db, data={"user_id": user.id, "roles": [VIEWER]})
+
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+    yield user
+    user.delete(db)
+
+
+@pytest.fixture
+def contributor_user(db):
+    user = FidesUser.create(
+        db=db,
+        data={
+            "username": "test_fides_contributor_user",
+            "password": "TESTdcnG@wzJeu0&%3Qe2fGo7",
+        },
+    )
+    client = ClientDetail(
+        hashed_secret="thisisatest",
+        salt="thisisstillatest",
+        scopes=[],
+        roles=[CONTRIBUTOR],
+        user_id=user.id,
+    )
+
     FidesUserPermissions.create(
-        db=db, data={"user_id": user.id, "scopes": [], "roles": [VIEWER]}
+        db=db, data={"user_id": user.id, "roles": [CONTRIBUTOR]}
     )
 
     db.add(client)
@@ -797,3 +997,212 @@ def viewer_user(db):
     db.refresh(client)
     yield user
     user.delete(db)
+
+
+@pytest.fixture
+def viewer_and_approver_user(db):
+    user = FidesUser.create(
+        db=db,
+        data={
+            "username": "test_fides_viewer_and_approver_user",
+            "password": "TESTdcnG@wzJeu0&%3Qe2fGo7",
+        },
+    )
+    client = ClientDetail(
+        hashed_secret="thisisatest",
+        salt="thisisstillatest",
+        scopes=[],
+        roles=[VIEWER_AND_APPROVER],
+        user_id=user.id,
+    )
+
+    FidesUserPermissions.create(
+        db=db, data={"user_id": user.id, "roles": [VIEWER_AND_APPROVER]}
+    )
+
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+    yield user
+    user.delete(db)
+
+
+@pytest.fixture(scope="function")
+def system(db: Session) -> System:
+    system = System.create(
+        db=db,
+        data={
+            "fides_key": f"system_key-f{uuid4()}",
+            "name": f"system-{uuid4()}",
+            "description": "fixture-made-system",
+            "organization_fides_key": "default_organization",
+            "system_type": "Service",
+        },
+    )
+
+    privacy_declaration = PrivacyDeclaration.create(
+        db=db,
+        data={
+            "name": "Collect data for marketing",
+            "system_id": system.id,
+            "data_categories": ["user.device.cookie_id"],
+            "data_use": "marketing.advertising",
+            "data_subjects": ["customer"],
+            "dataset_references": None,
+            "egress": None,
+            "ingress": None,
+        },
+    )
+
+    Cookies.create(
+        db=db,
+        data={
+            "name": "test_cookie",
+            "path": "/",
+            "privacy_declaration_id": privacy_declaration.id,
+            "system_id": system.id,
+        },
+        check_name=False,
+    )
+
+    db.refresh(system)
+    return system
+
+
+@pytest.fixture(scope="function")
+def system_multiple_decs(db: Session, system: System) -> System:
+    """
+    Add an additional PrivacyDeclaration onto the base System to test scenarios with
+    multiple PrivacyDeclarations on a given system
+    """
+    PrivacyDeclaration.create(
+        db=db,
+        data={
+            "name": "Collect data for third party sharing",
+            "system_id": system.id,
+            "data_categories": ["user.device.cookie_id"],
+            "data_use": "third_party_sharing",
+            "data_subjects": ["customer"],
+            "dataset_references": None,
+            "egress": None,
+            "ingress": None,
+        },
+    )
+
+    db.refresh(system)
+    return system
+
+
+@pytest.fixture(scope="function")
+def system_third_party_sharing(db: Session) -> System:
+    system_third_party_sharing = System.create(
+        db=db,
+        data={
+            "fides_key": f"system_key-f{uuid4()}",
+            "name": f"system-{uuid4()}",
+            "description": "fixture-made-system",
+            "organization_fides_key": "default_organization",
+            "system_type": "Service",
+        },
+    )
+
+    PrivacyDeclaration.create(
+        db=db,
+        data={
+            "name": "Collect data for third party sharing",
+            "system_id": system_third_party_sharing.id,
+            "data_categories": ["user.device.cookie_id"],
+            "data_use": "third_party_sharing",
+            "data_subjects": ["customer"],
+            "dataset_references": None,
+            "egress": None,
+            "ingress": None,
+        },
+    )
+    db.refresh(system_third_party_sharing)
+    return system_third_party_sharing
+
+
+@pytest.fixture(scope="function")
+def system_provide_service(db: Session) -> System:
+    system_provide_service = System.create(
+        db=db,
+        data={
+            "fides_key": f"system_key-f{uuid4()}",
+            "name": f"system-{uuid4()}",
+            "description": "fixture-made-system",
+            "organization_fides_key": "default_organization",
+            "system_type": "Service",
+        },
+    )
+
+    PrivacyDeclaration.create(
+        db=db,
+        data={
+            "name": "The source service, system, or product being provided to the user",
+            "system_id": system_provide_service.id,
+            "data_categories": ["user.device.cookie_id"],
+            "data_use": "essential.service",
+            "data_subjects": ["customer"],
+            "dataset_references": None,
+            "egress": None,
+            "ingress": None,
+        },
+    )
+    db.refresh(system_provide_service)
+    return system_provide_service
+
+
+@pytest.fixture(scope="function")
+def system_provide_service_operations_support_optimization(db: Session) -> System:
+    system_provide_service_operations_support_optimization = System.create(
+        db=db,
+        data={
+            "fides_key": f"system_key-f{uuid4()}",
+            "name": f"system-{uuid4()}",
+            "description": "fixture-made-system",
+            "organization_fides_key": "default_organization",
+            "system_type": "Service",
+        },
+    )
+
+    PrivacyDeclaration.create(
+        db=db,
+        data={
+            "name": "Optimize and improve support operations in order to provide the service",
+            "system_id": system_provide_service_operations_support_optimization.id,
+            "data_categories": ["user.device.cookie_id"],
+            "data_use": "essential.service.operations.improve",
+            "data_subjects": ["customer"],
+            "dataset_references": None,
+            "egress": None,
+            "ingress": None,
+        },
+    )
+    db.refresh(system_provide_service_operations_support_optimization)
+    return system_provide_service_operations_support_optimization
+
+
+@pytest.fixture
+def system_manager_client(db, system):
+    """Return a client assigned to a system for authentication purposes."""
+    client = ClientDetail(
+        hashed_secret="thisisatest",
+        salt="thisisstillatest",
+        roles=[],
+        systems=[system.id],
+    )
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+    yield client
+    client.delete(db)
+
+
+@pytest.fixture(scope="function", autouse=True)
+def load_default_data_uses(db):
+    for data_use in DEFAULT_TAXONOMY.data_use:
+        # weirdly, only in some test scenarios, we already have the default taxonomy
+        # loaded, in which case the create will throw an error. so we first check existence.
+        if DataUse.get_by(db, field="name", value=data_use.name) is None:
+            DataUse.create(db=db, data=data_use.dict())

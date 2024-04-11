@@ -13,14 +13,12 @@ describe("Dataset", () => {
   });
 
   describe("List of datasets view", () => {
-    // TODO: Update Cypress test to reflect the nav bar 2.0
-    it.skip("Can navigate to the datasets list view", () => {
+    it("Can navigate to the datasets list view", () => {
       cy.visit("/");
-      cy.getByTestId("nav-link-Datasets").click();
-      cy.wait("@getDatasets");
+      cy.getByTestId("Manage datasets-nav-link").click();
+      cy.wait("@getFilteredDatasets");
       cy.getByTestId("dataset-table");
       cy.getByTestId("dataset-row-demo_users_dataset_4");
-      cy.url().should("contain", "/dataset");
 
       // The classifier toggle should not be available.
       cy.get("input-classify").should("not.exist");
@@ -36,7 +34,7 @@ describe("Dataset", () => {
 
     it("Can load an individual dataset", () => {
       cy.visit("/dataset");
-      cy.wait("@getDatasets");
+      cy.wait("@getFilteredDatasets");
       cy.getByTestId("dataset-row-demo_users_dataset").click();
       // for some reason this is slow in CI, so add a timeout :(
       cy.url({ timeout: 10000 }).should(
@@ -74,7 +72,7 @@ describe("Dataset", () => {
       });
 
       // check we can add a column back
-      cy.getByTestId(`checkbox-${columnNames[1]}`).click();
+      cy.getByTestId(`checkbox-${columnNames[1]}`).click({ force: true });
       cy.getByTestId(`column-${columnNames[1]}`);
 
       // clicking 'done' should close the modal
@@ -101,7 +99,6 @@ describe("Dataset", () => {
         "have.value",
         "User's unique ID"
       );
-      cy.getByTestId("input-data_qualifier").should("contain", "Identified");
       cy.getByTestId("selected-categories").children().should("have.length", 1);
       cy.getByTestId("taxonomy-entity-user.unique_id");
     });
@@ -119,7 +116,6 @@ describe("Dataset", () => {
         "have.value",
         "User information"
       );
-      cy.getByTestId("input-data_qualifier").should("contain", "Identified");
       cy.getByTestId("selected-categories").children().should("have.length", 0);
     });
 
@@ -136,19 +132,6 @@ describe("Dataset", () => {
       cy.getByTestId("input-description").should(
         "have.value",
         "Data collected about users for our analytics system."
-      );
-      cy.getByTestId("input-retention").should(
-        "have.value",
-        "30 days after account deletion"
-      );
-      cy.getByTestId("input-data_qualifier").should("contain", "Identified");
-      cy.getByTestId("input-third_country_transfers").should(
-        "contain",
-        "Canada"
-      );
-      cy.getByTestId("input-third_country_transfers").should(
-        "contain",
-        "United Kingdom"
       );
       cy.getByTestId("selected-categories").children().should("have.length", 0);
     });
@@ -205,7 +188,7 @@ describe("Dataset", () => {
       cy.getByTestId("collection-select").select("products");
       cy.getByTestId("more-actions-btn").click();
       cy.getByTestId("modify-dataset")
-        .click()
+        .click({ force: true })
         .then(() => {
           cy.getByTestId("input-description").clear().type(newDescription);
           cy.getByTestId("save-btn").click({ force: true });
@@ -539,8 +522,8 @@ describe("Dataset", () => {
         "data-checked"
       );
       // the children of selected parents should be disabled
-      cy.getByTestId("checkbox-Credentials").click();
-      cy.get("[data-testid='checkbox-Password'] > span").should(
+      cy.getByTestId("checkbox-Authorization Information").click();
+      cy.get("[data-testid='checkbox-Account password'] > span").should(
         "have.attr",
         "data-checked"
       );
@@ -548,11 +531,15 @@ describe("Dataset", () => {
         "have.attr",
         "data-disabled"
       );
+      cy.get("[data-testid='checkbox-Password'] > span").should(
+        "have.attr",
+        "data-disabled"
+      );
       cy.getByTestId("data-category-done-btn").click();
       const expectedSelected = [
         "system.authentication",
         "system.operations",
-        "user.credentials",
+        "user.authorization",
       ];
       expectedSelected.forEach((e) => {
         cy.getByTestId("selected-categories").should("contain", e);

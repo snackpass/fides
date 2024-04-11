@@ -32,18 +32,21 @@ disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
 module = [
+  "AccessControl.*",
   "alembic.*",
   "apscheduler.*",
   "boto3.*",
   "botocore.*",
   "bson.*",
   "celery.*",
+  "citext.*",
   "dask.*",
   "deepdiff.*",
-  "fideslang.*",
+  "defusedxml.ElementTree.*",
   "fideslog.*",
   "firebase_admin.*",
   "google.api_core.*",
+  "nh3.*",
   "jose.*",
   "jwt.*",
   "multidimensional_urlencode.*",
@@ -52,6 +55,7 @@ module = [
   "plotly.*",
   "pydash.*",
   "pymongo.*",
+  "RestrictedPython.*",
   "sendgrid.*",
   "snowflake.*",
   "sqlalchemy.ext.*",
@@ -60,7 +64,6 @@ module = [
   "twilio.*",
   "uvicorn.*",
   "validators.*",
-  "citext.*",
 ]
 ignore_missing_imports = true
 
@@ -182,34 +185,12 @@ markers = [
     "integration_snowflake",
     "integration_mariadb",
     "integration_bigquery",
+    "integration_dynamodb",
     "integration_saas",
     "integration_saas_override",
-    "integration_mailchimp",
-    "integration_zendesk",
-    "integration_sentry",
-    "integration_stripe",
-    "integration_hubspot",
-    "integration_datadog",
-    "integration_domo",
-    "integration_doordash",
-    "integration_friendbuy_nextgen",
-    "integration_fullstory",
-    "integration_segment",
-    "integration_sendgrid",
-    "integration_friendbuy",
-    "integration_braintree",
-    "integration_auth0",
-    "integration_shopify",
-    "integration_square",
-    "integration_outreach",
-    "integration_recharge",
-    "integration_salesforce",
-    "integration_twilio_conversations",
-    "integration_adobe_campaign",
-    "integration_firebase_auth",
     "unit_saas"
 ]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-omit = ["src/fides/api/ctl/migrations/*"]
+omit = ["src/fides/api/alembic/migrations/*"]

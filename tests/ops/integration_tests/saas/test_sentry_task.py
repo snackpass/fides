@@ -5,27 +5,25 @@ from typing import Any, Dict, List, Optional
 import pytest
 import requests
 
-from fides.api.ops.graph.graph import DatasetGraph
-from fides.api.ops.models.privacy_request import PrivacyRequest
-from fides.api.ops.schemas.redis_cache import Identity
-from fides.api.ops.service.connectors import get_connector
-from fides.api.ops.task import graph_task
-from fides.api.ops.task.filter_results import filter_data_categories
-from fides.api.ops.task.graph_task import get_cached_data_for_erasures
+from fides.api.graph.graph import DatasetGraph
+from fides.api.models.privacy_request import PrivacyRequest
+from fides.api.schemas.redis_cache import Identity
+from fides.api.service.connectors import get_connector
+from fides.api.task import graph_task
+from fides.api.task.filter_results import filter_data_categories
+from fides.api.task.graph_task import get_cached_data_for_erasures
 from tests.ops.graph.graph_test_util import assert_rows_match
 from tests.ops.test_helpers.saas_test_utils import poll_for_existence
 
 
 @pytest.mark.skip(reason="Pending account resolution")
 @pytest.mark.integration_saas
-@pytest.mark.integration_sentry
 def test_sentry_connection_test(sentry_connection_config) -> None:
     get_connector(sentry_connection_config).test_connection()
 
 
 @pytest.mark.skip(reason="Pending account resolution")
 @pytest.mark.integration_saas
-@pytest.mark.integration_sentry
 @pytest.mark.asyncio
 async def test_sentry_access_request_task(
     db,
@@ -273,7 +271,6 @@ def sentry_erasure_test_prep(sentry_connection_config, db):
 
 @pytest.mark.skip(reason="Pending account resolution")
 @pytest.mark.integration_saas
-@pytest.mark.integration_sentry
 @pytest.mark.asyncio
 async def test_sentry_erasure_request_task(
     db, policy, sentry_connection_config, sentry_dataset_config

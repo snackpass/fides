@@ -1,15 +1,21 @@
 saas_config:
   fides_key: <instance_fides_key>
-  name: Delighted SaaS Config
+  name: Delighted
   type: delighted
   description: A sample schema representing the Delighted connector for Fides
-  version: 0.1.0
+  user_guide: https://docs.ethyca.com/user-guides/integrations/saas-integrations/delighted
+  version: 0.1.4
 
   connector_params:
     - name: domain
       default_value: api.delighted.com
+      description: Your Delighted API URL
     - name: username
+      description: Your username associated with the account
     - name: api_key
+      label: API key
+      description: Your API Key
+      sensitive: True
 
   client_config:
     protocol: https
@@ -51,6 +57,7 @@ saas_config:
                 - dataset: <instance_fides_key>
                   field: person.id
                   direction: from
+          ignore_errors: [404]
     - name: survey_response
       requests:
         read:
@@ -61,4 +68,7 @@ saas_config:
               value: <email>
           param_values:
             - name: email
-              identity: email
+              references:
+                - dataset: <instance_fides_key>
+                  field: person.email
+                  direction: from

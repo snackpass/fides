@@ -33,6 +33,16 @@ const datasetApi = baseApi.injectEndpoints({
       query: () => ({ url: `dataset/` }),
       providesTags: () => ["Datasets"],
     }),
+    getAllFilteredDatasets: build.query<
+      Dataset[],
+      { onlyUnlinkedDatasets: boolean }
+    >({
+      query: ({ onlyUnlinkedDatasets }) => ({
+        url: `/filter/dataset`,
+        params: { only_unlinked_datasets: onlyUnlinkedDatasets },
+      }),
+      providesTags: () => ["Datasets"],
+    }),
     getDatasetByKey: build.query<Dataset, string>({
       query: (key) => ({ url: `dataset/${key}` }),
       providesTags: () => ["Dataset"],
@@ -90,6 +100,7 @@ const datasetApi = baseApi.injectEndpoints({
 
 export const {
   useGetAllDatasetsQuery,
+  useGetAllFilteredDatasetsQuery,
   useGetDatasetByKeyQuery,
   useUpdateDatasetMutation,
   useUpsertDatasetsMutation,
@@ -153,17 +164,35 @@ export const { reducer } = datasetSlice;
 
 const selectDataset = (state: RootState) => state.dataset;
 
+const emptyDatasets: Dataset[] = [];
+export const selectAllDatasets: (state: RootState) => Dataset[] =
+  createSelector(
+    [(RootState) => RootState, datasetApi.endpoints.getAllDatasets.select()],
+    (RootState, { data }) => data ?? emptyDatasets
+  );
+
+export const selectAllFilteredDatasets: (state: RootState) => Dataset[] =
+  createSelector(
+    [
+      (RootState) => RootState,
+      datasetApi.endpoints.getAllFilteredDatasets.select({
+        onlyUnlinkedDatasets: false,
+      }),
+    ],
+    (RootState, { data }) => data ?? emptyDatasets
+  );
 export const selectActiveDatasetFidesKey = createSelector(
   selectDataset,
   (state) => state.activeDatasetFidesKey
 );
-export const selectActiveDataset = createSelector(
-  [(RootState) => RootState, selectActiveDatasetFidesKey],
-  (RootState, fidesKey) =>
-    fidesKey !== undefined
-      ? datasetApi.endpoints.getDatasetByKey.select(fidesKey)(RootState)?.data
-      : undefined
-);
+export const selectActiveDataset: (state: RootState) => Dataset | undefined =
+  createSelector(
+    [(RootState) => RootState, selectActiveDatasetFidesKey],
+    (RootState, fidesKey) =>
+      fidesKey !== undefined
+        ? datasetApi.endpoints.getDatasetByKey.select(fidesKey)(RootState)?.data
+        : undefined
+  );
 
 export const selectActiveCollections = createSelector(
   selectActiveDataset,

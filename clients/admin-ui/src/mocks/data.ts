@@ -4,7 +4,6 @@ import {
   ClassifyCollection,
   ClassifyDataset,
   ClassifyField,
-  DataResponsibilityTitle,
   Dataset,
   DatasetCollection,
   DatasetField,
@@ -18,9 +17,7 @@ import {
 export const mockSystem = (partialSystem?: Partial<System>): System => {
   const system: System = {
     system_type: "Service",
-    data_responsibility_title: DataResponsibilityTitle.CONTROLLER,
     privacy_declarations: [],
-    data_protection_impact_assessment: { is_required: true },
     fides_key: "analytics_system",
     organization_fides_key: "sample_organization",
   };
@@ -46,6 +43,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: "user.provided.identifiable",
     is_default: true,
+    active: true,
   },
   {
     description: "Data related to the individual's political opinions.",
@@ -54,6 +52,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: "user.provided.identifiable",
     is_default: true,
+    active: true,
   },
   {
     description:
@@ -63,6 +62,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: "user.provided",
     is_default: true,
+    active: true,
   },
   {
     description: "Data related to a system account.",
@@ -71,6 +71,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: null,
     is_default: true,
+    active: true,
   },
   {
     description: "Contact data related to a system account.",
@@ -79,6 +80,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: "account",
     is_default: true,
+    active: true,
   },
   {
     description: "Account's city level address data.",
@@ -87,6 +89,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: "account.contact",
     is_default: true,
+    active: true,
   },
   {
     description: "Data unique to, and under control of the system.",
@@ -95,6 +98,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: null,
     is_default: true,
+    active: true,
   },
   {
     description: "Data used to manage access to the system.",
@@ -103,6 +107,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: "system",
     is_default: true,
+    active: true,
   },
   {
     description:
@@ -112,6 +117,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: null,
     is_default: true,
+    active: true,
   },
   {
     description:
@@ -121,6 +127,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: "user",
     is_default: true,
+    active: true,
   },
   {
     description: "Data provided or created directly by a user of the system.",
@@ -129,6 +136,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: "user",
     is_default: true,
+    active: true,
   },
   {
     description:
@@ -138,6 +146,7 @@ export const MOCK_DATA_CATEGORIES = [
     organization_fides_key: "default_organization",
     parent_key: "user.provided",
     is_default: true,
+    active: true,
   },
 ];
 
@@ -152,6 +161,7 @@ export const MOCK_DATA_SUBJECTS = [
     rights: null,
     automated_decisions_or_profiling: null,
     is_default: true,
+    active: true,
   },
   {
     fides_key: "citizen_voter",
@@ -162,6 +172,7 @@ export const MOCK_DATA_SUBJECTS = [
     rights: null,
     automated_decisions_or_profiling: null,
     is_default: true,
+    active: true,
   },
   {
     fides_key: "commuter",
@@ -173,6 +184,7 @@ export const MOCK_DATA_SUBJECTS = [
     rights: null,
     automated_decisions_or_profiling: null,
     is_default: true,
+    active: true,
   },
 ];
 
@@ -181,10 +193,8 @@ export const mockDatasetField = (
 ): DatasetField => {
   const field: DatasetField = {
     name: "created_at",
-    data_qualifier: "aggregated",
     description: "User's creation timestamp",
     data_categories: ["system.operations"],
-    retention: "Account termination",
   };
   return Object.assign(field, partialField);
 };
@@ -194,10 +204,8 @@ export const mockDatasetCollection = (
 ): DatasetCollection => {
   const collection: DatasetCollection = {
     name: "created_at",
-    data_qualifier: "aggregated",
     description: "User's creation timestamp",
     data_categories: ["system.operations"],
-    retention: "Account termination",
     fields: [mockDatasetField()],
   };
   return Object.assign(collection, partialCollection);
@@ -208,10 +216,8 @@ export const mockDataset = (partialDataset?: Partial<Dataset>): Dataset => {
     fides_key: "sample_dataset",
     organization_fides_key: "mock_organization",
     name: "created_at",
-    data_qualifier: "aggregated",
     description: "User's creation timestamp",
     data_categories: ["system.operations"],
-    retention: "Account termination",
     collections: [mockDatasetCollection()],
   };
   return Object.assign(dataset, partialDataset);

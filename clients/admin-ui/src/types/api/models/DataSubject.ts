@@ -9,6 +9,22 @@ import type { DataSubjectRights } from "./DataSubjectRights";
  */
 export type DataSubject = {
   /**
+   * The version of Fideslang in which this label was added.
+   */
+  version_added?: string;
+  /**
+   * The version of Fideslang in which this label was deprecated.
+   */
+  version_deprecated?: string;
+  /**
+   * The new name, if applicable, for this label after deprecation.
+   */
+  replaced_by?: string;
+  /**
+   * Denotes whether the resource is part of the default taxonomy or not.
+   */
+  is_default?: boolean;
+  /**
    * A unique key used to identify this resource.
    */
   fides_key: string;
@@ -40,7 +56,7 @@ export type DataSubject = {
    */
   automated_decisions_or_profiling?: boolean;
   /**
-   * Denotes whether the resource is part of the default taxonomy or not.
+   * Indicates whether the resource is currently 'active'.
    */
-  is_default?: boolean;
+  active?: boolean;
 };

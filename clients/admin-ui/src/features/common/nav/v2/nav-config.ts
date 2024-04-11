@@ -1,58 +1,230 @@
+import { FlagNames } from "~/features/common/features";
+import { ScopeRegistryEnum } from "~/types/api";
+
+import * as routes from "./routes";
+
 export type NavConfigRoute = {
   title?: string;
   path: string;
   exact?: boolean;
   requiresPlus?: boolean;
+  requiresFlag?: FlagNames;
+  requiresFidesCloud?: boolean;
+  /** This route is only available if the user has ANY of these scopes */
+  scopes: ScopeRegistryEnum[];
+  /** Child routes which will be rendered in the side nav */
+  routes?: NavConfigRoute[];
 };
 
 export type NavConfigGroup = {
   title: string;
-  requiresSystems?: boolean;
-  requiresConnections?: boolean;
   routes: NavConfigRoute[];
 };
 
 export const NAV_CONFIG: NavConfigGroup[] = [
   // Goes last because its root path will match everything.
   {
-    title: "Home",
+    title: "Overview",
     routes: [
       {
+        title: "Home",
         path: "/",
         exact: true,
+        scopes: [],
+      },
+    ],
+  },
+  {
+    title: "Data inventory",
+    routes: [
+      {
+        title: "Data lineage",
+        path: routes.DATAMAP_ROUTE,
+        requiresPlus: true,
+        scopes: [ScopeRegistryEnum.DATAMAP_READ],
+      },
+      {
+        title: "Systems & vendors",
+        path: routes.SYSTEM_ROUTE,
+        scopes: [ScopeRegistryEnum.SYSTEM_READ],
+      },
+      {
+        title: "Add systems",
+        path: routes.ADD_SYSTEMS_ROUTE,
+        scopes: [ScopeRegistryEnum.SYSTEM_CREATE],
+      },
+      {
+        title: "Manage datasets",
+        path: routes.DATASET_ROUTE,
+        scopes: [
+          ScopeRegistryEnum.CTL_DATASET_CREATE,
+          ScopeRegistryEnum.CTL_DATASET_UPDATE,
+        ],
+      },
+      {
+        title: "Reporting",
+        path: routes.REPORTING_DATAMAP_ROUTE,
+        requiresPlus: true,
+        scopes: [ScopeRegistryEnum.DATAMAP_READ],
+        requiresFlag: "datamapReportingPage",
       },
     ],
   },
   {
     title: "Privacy requests",
-    requiresConnections: true,
     routes: [
-      { title: "Request manager", path: "/privacy-requests" },
-      { title: "Connection manager", path: "/datastore-connection" },
-      { title: "Configuration", path: "/privacy-requests/configure" },
+      {
+        title: "Request manager",
+        path: routes.PRIVACY_REQUESTS_ROUTE,
+        scopes: [
+          ScopeRegistryEnum.PRIVACY_REQUEST_READ,
+          ScopeRegistryEnum.PRIVACY_REQUEST_CREATE,
+        ],
+      },
+      {
+        title: "Connection manager",
+        path: routes.DATASTORE_CONNECTION_ROUTE,
+        scopes: [ScopeRegistryEnum.CONNECTION_CREATE_OR_UPDATE],
+      },
+      {
+        title: "Configuration",
+        path: routes.PRIVACY_REQUESTS_CONFIGURATION_ROUTE,
+        requiresFlag: "privacyRequestsConfiguration",
+        scopes: [ScopeRegistryEnum.MESSAGING_CREATE_OR_UPDATE],
+      },
     ],
   },
   {
-    title: "Data map",
-    requiresSystems: true,
+    title: "Consent",
     routes: [
-      { title: "View map", path: "/datamap", requiresPlus: true },
-      { title: "View systems", path: "/system" },
-      { title: "Add systems", path: "/add-systems" },
-      { title: "Manage datasets", path: "/dataset" },
       {
-        title: "Classify systems",
-        path: "/classify-systems",
+        title: "Properties",
+        path: routes.PROPERTIES_ROUTE,
         requiresPlus: true,
+        scopes: [ScopeRegistryEnum.PROPERTY_READ],
+      },
+      {
+        title: "Vendors",
+        path: routes.CONFIGURE_CONSENT_ROUTE,
+        requiresPlus: true,
+        scopes: [ScopeRegistryEnum.PRIVACY_NOTICE_READ],
+      },
+      {
+        title: "Notices",
+        path: routes.PRIVACY_NOTICES_ROUTE,
+        requiresPlus: true,
+        scopes: [ScopeRegistryEnum.PRIVACY_NOTICE_READ],
+      },
+      {
+        title: "Experiences",
+        path: routes.PRIVACY_EXPERIENCE_ROUTE,
+        requiresPlus: true,
+        scopes: [ScopeRegistryEnum.PRIVACY_EXPERIENCE_READ],
+      },
+      {
+        title: "Consent reporting",
+        path: routes.CONSENT_REPORTING_ROUTE,
+        requiresFlag: "consentReporting",
+        requiresPlus: true,
+        scopes: [ScopeRegistryEnum.PRIVACY_NOTICE_READ],
       },
     ],
   },
   {
     title: "Management",
     routes: [
-      { title: "Taxonomy", path: "/taxonomy" },
-      { title: "Users", path: "/user-management" },
-      { title: "About Fides", path: "/management/about" },
+      {
+        title: "Users",
+        path: routes.USER_MANAGEMENT_ROUTE,
+        scopes: [
+          ScopeRegistryEnum.USER_UPDATE,
+          ScopeRegistryEnum.USER_CREATE,
+          ScopeRegistryEnum.USER_PERMISSION_UPDATE,
+          ScopeRegistryEnum.USER_READ,
+        ],
+      },
+      {
+        title: "Organization",
+        path: routes.ORGANIZATION_MANAGEMENT_ROUTE,
+        requiresFlag: "organizationManagement",
+        scopes: [
+          ScopeRegistryEnum.ORGANIZATION_READ,
+          ScopeRegistryEnum.ORGANIZATION_UPDATE,
+        ],
+      },
+      {
+        title: "Locations",
+        path: routes.LOCATIONS_ROUTE,
+        scopes: [
+          ScopeRegistryEnum.LOCATION_READ,
+          ScopeRegistryEnum.LOCATION_UPDATE,
+        ],
+        requiresPlus: true,
+      },
+      {
+        title: "Regulations",
+        path: routes.REGULATIONS_ROUTE,
+        scopes: [
+          ScopeRegistryEnum.LOCATION_READ,
+          ScopeRegistryEnum.LOCATION_UPDATE,
+        ],
+        requiresPlus: true,
+      },
+      {
+        title: "Taxonomy",
+        path: routes.TAXONOMY_ROUTE,
+        scopes: [
+          ScopeRegistryEnum.DATA_CATEGORY_CREATE,
+          ScopeRegistryEnum.DATA_CATEGORY_UPDATE,
+          ScopeRegistryEnum.DATA_USE_CREATE,
+          ScopeRegistryEnum.DATA_USE_UPDATE,
+          ScopeRegistryEnum.DATA_SUBJECT_CREATE,
+          ScopeRegistryEnum.DATA_SUBJECT_UPDATE,
+        ],
+      },
+      {
+        title: "Custom fields",
+        path: routes.CUSTOM_FIELDS_ROUTE,
+        scopes: [ScopeRegistryEnum.CUSTOM_FIELD_READ],
+        requiresPlus: true,
+      },
+      {
+        title: "Email templates",
+        path: routes.EMAIL_TEMPLATES_ROUTE,
+        scopes: [ScopeRegistryEnum.MESSAGING_CREATE_OR_UPDATE],
+      },
+      {
+        title: "Domain verification",
+        path: routes.DOMAIN_RECORDS_ROUTE,
+        requiresPlus: true,
+        requiresFidesCloud: true,
+        scopes: [ScopeRegistryEnum.FIDES_CLOUD_CONFIG_READ],
+      },
+      {
+        title: "Domains",
+        path: routes.DOMAIN_MANAGEMENT_ROUTE,
+        requiresPlus: true,
+        requiresFidesCloud: false,
+        scopes: [
+          ScopeRegistryEnum.CONFIG_READ,
+          ScopeRegistryEnum.CONFIG_UPDATE,
+        ],
+      },
+      {
+        title: "Consent",
+        path: routes.GLOBAL_CONSENT_CONFIG_ROUTE,
+        requiresPlus: true,
+        requiresFidesCloud: false,
+        scopes: [
+          ScopeRegistryEnum.TCF_PUBLISHER_OVERRIDE_READ,
+          ScopeRegistryEnum.TCF_PUBLISHER_OVERRIDE_UPDATE,
+        ],
+      },
+      {
+        title: "About Fides",
+        path: routes.ABOUT_ROUTE,
+        scopes: [ScopeRegistryEnum.USER_READ], // temporary scope while we don't have a scope for beta features
+      },
     ],
   },
 ];
@@ -61,40 +233,152 @@ export type NavGroupChild = {
   title: string;
   path: string;
   exact?: boolean;
+  children: Array<NavGroupChild>;
 };
 
 export type NavGroup = {
   /**
-   * Title of the group. Displayed in NavTopBar.
+   * Title of the group. Displayed as an accordion in MainSideNav.
    */
   title: string;
   /**
-   * The routes that are nested under this group. These are displayed in the NavSideBar. If this has
-   * only one child, the side bar should not be shown at all (such as for "Home").
+   * The routes that are nested under this group. These are displayed inside of each group's accordion.
    */
   children: Array<NavGroupChild>;
 };
 
+/** If all routes in the group require plus and plus is not running then return true */
+const navAllGroupReqsPlus = (group: NavConfigGroup, hasPlus: boolean) => {
+  if (group.routes.every((route) => route.requiresPlus) && !hasPlus) {
+    return true;
+  }
+  return false;
+};
+/**
+ * If a group contains only routes that the user cannot access, return false.
+ * An empty list of scopes is a special case where any scope works.
+ */
+const navGroupInScope = (
+  group: NavConfigGroup,
+  userScopes: ScopeRegistryEnum[]
+) => {
+  if (group.routes.filter((route) => route.scopes.length === 0).length === 0) {
+    const allScopesAcrossRoutes = group.routes.reduce((acc, route) => {
+      const { scopes } = route;
+      return [...acc, ...scopes];
+    }, [] as ScopeRegistryEnum[]);
+    if (
+      allScopesAcrossRoutes.length &&
+      allScopesAcrossRoutes.filter((scope) => userScopes.includes(scope))
+        .length === 0
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+/**
+ * If the user does not have any of the scopes listed in the route's requirements,
+ * return false. An empty list of scopes is a special case where any scope works.
+ */
+const navRouteInScope = (
+  route: NavConfigRoute,
+  userScopes: ScopeRegistryEnum[]
+) => {
+  if (
+    route.scopes.length &&
+    route.scopes.filter((requiredScope) => userScopes.includes(requiredScope))
+      .length === 0
+  ) {
+    return false;
+  }
+  return true;
+};
+
+interface ConfigureNavProps {
+  config: NavConfigGroup[];
+  userScopes: ScopeRegistryEnum[];
+  hasPlus?: boolean;
+  hasFidesCloud?: boolean;
+  flags?: Record<string, boolean>;
+}
+
+const configureNavRoute = ({
+  route,
+  hasPlus,
+  flags,
+  userScopes,
+  hasFidesCloud,
+  navGroupTitle,
+}: Omit<ConfigureNavProps, "config"> & {
+  route: NavConfigRoute;
+  navGroupTitle: string;
+}): NavGroupChild | undefined => {
+  // If the target route would require plus in a non-plus environment,
+  // exclude it from the group.
+  if (route.requiresPlus && !hasPlus) {
+    return undefined;
+  }
+
+  // If the target route would require fides cloud in a non-fides-cloud environment,
+  // exclude it from the group.
+  if (route.requiresFidesCloud && !hasFidesCloud) {
+    return undefined;
+  }
+
+  // If the target route is protected by a feature flag that is not enabled,
+  // exclude it from the group
+  if (route.requiresFlag && (!flags || !flags[route.requiresFlag])) {
+    return undefined;
+  }
+
+  // If the target route is protected by a scope that the user does not
+  // have, exclude it from the group
+  if (!navRouteInScope(route, userScopes)) {
+    return undefined;
+  }
+
+  const children: NavGroupChild["children"] = [];
+  if (route.routes) {
+    route.routes.forEach((childRoute) => {
+      const configuredChildRoute = configureNavRoute({
+        route: childRoute,
+        userScopes,
+        hasPlus,
+        flags,
+        hasFidesCloud,
+        navGroupTitle,
+      });
+      if (configuredChildRoute) {
+        children.push(configuredChildRoute);
+      }
+    });
+  }
+
+  const groupChild: NavGroupChild = {
+    title: route.title ?? navGroupTitle,
+    path: route.path,
+    exact: route.exact,
+    children,
+  };
+
+  return groupChild;
+};
+
 export const configureNavGroups = ({
   config,
+  userScopes,
   hasPlus = false,
-  hasSystems = false,
-  hasConnections = false,
-  hasAccessToPrivacyRequestConfigurations = false,
-}: {
-  config: NavConfigGroup[];
-  hasPlus?: boolean;
-  hasSystems?: boolean;
-  hasConnections?: boolean;
-  hasAccessToPrivacyRequestConfigurations?: boolean;
-}): NavGroup[] => {
+  hasFidesCloud = false,
+  flags,
+}: ConfigureNavProps): NavGroup[] => {
   const navGroups: NavGroup[] = [];
-
   config.forEach((group) => {
-    // Skip groups with unmet requirements.
+    // if no nav routes are scoped for the user or all require plus
     if (
-      (group.requiresConnections && !hasConnections) ||
-      (group.requiresSystems && !hasSystems)
+      !navGroupInScope(group, userScopes) ||
+      navAllGroupReqsPlus(group, hasPlus)
     ) {
       return;
     }
@@ -106,24 +390,17 @@ export const configureNavGroups = ({
     navGroups.push(navGroup);
 
     group.routes.forEach((route) => {
-      // If the target route would require plus in a non-plus environment,
-      // exclude it from the group.
-      if (route.requiresPlus && !hasPlus) {
-        return;
-      }
-
-      if (
-        route.path === "/privacy-requests/configure" &&
-        !hasAccessToPrivacyRequestConfigurations
-      ) {
-        return;
-      }
-
-      navGroup.children.push({
-        title: route.title ?? navGroup.title,
-        path: route.path,
-        exact: route.exact,
+      const routeConfig = configureNavRoute({
+        route,
+        hasPlus,
+        flags,
+        userScopes,
+        hasFidesCloud,
+        navGroupTitle: group.title,
       });
+      if (routeConfig) {
+        navGroup.children.push(routeConfig);
+      }
     });
   });
 

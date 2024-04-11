@@ -3,23 +3,23 @@ import json
 from typing import Dict, List, Tuple
 
 import requests
+from fideslang.validation import FidesKey
 
-from fides.cli.utils import handle_cli_response
-from fides.core.config import CONFIG
+from fides.api.cryptography.cryptographic_util import str_to_b64_str
+from fides.common.utils import echo_green, echo_red, handle_cli_response
+from fides.config import CONFIG
 from fides.core.utils import (
     Credentials,
-    echo_green,
-    echo_red,
     get_auth_header,
     get_credentials_path,
     read_credentials_file,
     write_credentials_file,
 )
-from fides.lib.cryptography.cryptographic_util import str_to_b64_str
 
 CREATE_USER_PATH = "/api/v1/user"
 LOGIN_PATH = "/api/v1/login"
 USER_PERMISSIONS_PATH = "/api/v1/user/{}/permission"
+SYSTEM_MANAGER_PATH = "/api/v1/user/{}/system-manager"
 
 
 def get_access_token(username: str, password: str, server_url: str) -> Tuple[str, str]:
@@ -66,7 +66,7 @@ def get_user_permissions(
     user_id: str, auth_header: Dict[str, str], server_url: str
 ) -> Tuple[List[str], List[str]]:
     """
-    List all of the directly-assigned scopes for the provided user.
+    Return a tuple of the total scopes the user has inherited via their roles, plus their roles
     """
     get_permissions_path = USER_PERMISSIONS_PATH.format(user_id)
     response = requests.get(
@@ -75,12 +75,31 @@ def get_user_permissions(
     )
 
     handle_cli_response(response, verbose=False)
-    return response.json()["scopes"], response.json()["roles"]
+
+    return (
+        response.json()["total_scopes"],
+        response.json()["roles"],
+    )
+
+
+def get_systems_managed_by_user(
+    user_id: str, auth_header: Dict[str, str], server_url: str
+) -> List[FidesKey]:
+    """
+    List all of the systems for which the current user is directly assigned
+    """
+    get_systems_path = SYSTEM_MANAGER_PATH.format(user_id)
+    response = requests.get(
+        server_url + get_systems_path,
+        headers=auth_header,
+    )
+
+    handle_cli_response(response, verbose=False)
+    return [system["fides_key"] for system in response.json()]
 
 
 def update_user_permissions(
     user_id: str,
-    scopes: List[str],
     auth_header: Dict[str, str],
     server_url: str,
     roles: List[str],
@@ -88,7 +107,7 @@ def update_user_permissions(
     """
     Update user permissions for a given user.
     """
-    request_data = {"scopes": scopes, "id": user_id, "roles": roles}
+    request_data = {"id": user_id, "roles": roles}
     set_permissions_path = USER_PERMISSIONS_PATH.format(user_id)
     response = requests.put(
         server_url + set_permissions_path,
@@ -117,14 +136,14 @@ def create_command(
         server_url=server_url,
     )
     user_id = user_response.json()["id"]
+    new_user_roles = CONFIG.security.root_user_roles
     update_user_permissions(
         user_id=user_id,
-        scopes=CONFIG.security.root_user_scopes,
         auth_header=auth_header,
         server_url=server_url,
-        roles=CONFIG.security.root_user_roles,
+        roles=new_user_roles,
     )
-    echo_green(f"User: '{username}' created and assigned permissions.")
+    echo_green(f"User: '{username}' created and assigned permissions: {new_user_roles}")
 
 
 def login_command(username: str, password: str, server_url: str) -> str:
@@ -137,7 +156,7 @@ def login_command(username: str, password: str, server_url: str) -> str:
     )
     echo_green(f"Logged in as user: {username}")
     credentials = Credentials(
-        username=username, password=password, user_id=user_id, access_token=access_token
+        username=username, user_id=user_id, access_token=access_token
     )
     credentials_path = get_credentials_path()
     write_credentials_file(credentials, credentials_path)
@@ -158,12 +177,19 @@ def get_permissions_command(server_url: str) -> None:
 
     user_id = credentials.user_id
     auth_header = get_auth_header()
-    scopes, roles = get_user_permissions(user_id, auth_header, server_url)
-
-    print("Permissions (Directly-Assigned Scopes):")
-    for scope in scopes:
-        print(f"\t{scope}")
+    total_scopes, roles = get_user_permissions(user_id, auth_header, server_url)
+    systems: List[FidesKey] = get_systems_managed_by_user(
+        user_id, auth_header, server_url
+    )
 
     print("Roles:")
     for role in roles:
         print(f"\t{role}")
+
+    print("Associated scopes:")
+    for scope in total_scopes:
+        print(f"\t{scope}")
+
+    print("Systems Under Management:")
+    for system in systems:
+        print(f"\t{system}")

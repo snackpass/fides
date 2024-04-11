@@ -3,12 +3,12 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm.exc import ObjectDeletedError
 
-from fides.api.ops.models.connectionconfig import (
+from fides.api.models.connectionconfig import (
     AccessLevel,
     ConnectionConfig,
     ConnectionType,
 )
-from fides.api.ops.models.manual_webhook import AccessManualWebhook
+from fides.api.models.manual_webhook import AccessManualWebhook
 
 
 @pytest.fixture(scope="function")
@@ -36,8 +36,16 @@ def access_manual_webhook(db, integration_manual_webhook_config) -> ConnectionCo
         data={
             "connection_config_id": integration_manual_webhook_config.id,
             "fields": [
-                {"pii_field": "email", "dsr_package_label": "email"},
-                {"pii_field": "Last Name", "dsr_package_label": "last_name"},
+                {
+                    "pii_field": "email",
+                    "dsr_package_label": "email",
+                    "data_categories": ["user.contact.email"],
+                },
+                {
+                    "pii_field": "Last Name",
+                    "dsr_package_label": "last_name",
+                    "data_categories": ["user.name"],
+                },
             ],
         },
     )
@@ -49,8 +57,16 @@ def access_manual_webhook(db, integration_manual_webhook_config) -> ConnectionCo
 
 
 @pytest.fixture(scope="function")
-def cached_input(privacy_request_requires_input, access_manual_webhook):
-    privacy_request_requires_input.cache_manual_webhook_input(
+def cached_access_input(privacy_request_requires_input, access_manual_webhook):
+    privacy_request_requires_input.cache_manual_webhook_access_input(
         access_manual_webhook,
         {"email": "customer-1@example.com", "last_name": "McCustomer"},
+    )
+
+
+@pytest.fixture(scope="function")
+def cached_erasure_input(privacy_request_requires_input, access_manual_webhook):
+    privacy_request_requires_input.cache_manual_webhook_erasure_input(
+        access_manual_webhook,
+        {"email": False, "last_name": True},
     )

@@ -1,5 +1,6 @@
 import { stubPlus } from "cypress/support/stubs";
 
+import { ADD_SYSTEMS_ROUTE } from "~/features/common/nav/v2/routes";
 import { ClusterHealth } from "~/types/api";
 
 /**
@@ -8,7 +9,7 @@ import { ClusterHealth } from "~/types/api";
  */
 const goToDataFlowScanner = () => {
   // Go through the initial config wizard steps
-  cy.visit("/add-systems");
+  cy.visit(ADD_SYSTEMS_ROUTE);
 
   // Select Runtime scanner to move to scan step.
   cy.getByTestId("add-systems");
@@ -18,16 +19,19 @@ const goToDataFlowScanner = () => {
 /**
  * This test suite is a parallel of config-wizard.cy.ts for testing the config wizard flow
  * when the user has access to the Fides+.
+ *
+ * Skipping for now, these tests need to be refactored
+ * https://ethyca.atlassian.net/browse/PROD-1737
  */
-describe("Config wizard with plus settings", () => {
+describe.skip("Config wizard with plus settings", () => {
   beforeEach(() => {
     cy.login();
     cy.intercept("GET", "/api/v1/organization/*", {
-      fixture: "organization.json",
+      fixture: "organizations/default_organization.json",
     }).as("getOrganization");
 
     cy.intercept("PUT", "/api/v1/organization**", {
-      fixture: "organization.json",
+      fixture: "organizations/default_organization.json",
     }).as("updateOrganization");
   });
 
@@ -36,13 +40,25 @@ describe("Config wizard with plus settings", () => {
       stubPlus(true, {
         core_fides_version: "1.9.6",
         fidesplus_server: "healthy",
+        fidesplus_version: "1.9.6",
         system_scanner: {
           enabled: false,
           cluster_health: null,
           cluster_error: null,
         },
+        dictionary: {
+          enabled: true,
+          service_health: null,
+          service_error: null,
+        },
+        tcf: {
+          enabled: false,
+        },
+        fides_cloud: {
+          enabled: false,
+        },
       });
-      cy.visit("/add-systems");
+      cy.visit(ADD_SYSTEMS_ROUTE);
       cy.getByTestId("add-systems");
 
       cy.wait("@getPlusHealth");
@@ -55,13 +71,25 @@ describe("Config wizard with plus settings", () => {
       stubPlus(true, {
         core_fides_version: "1.9.6",
         fidesplus_server: "healthy",
+        fidesplus_version: "1.9.6",
         system_scanner: {
           enabled: true,
           cluster_health: ClusterHealth.UNHEALTHY,
           cluster_error: null,
         },
+        dictionary: {
+          enabled: true,
+          service_health: null,
+          service_error: null,
+        },
+        tcf: {
+          enabled: false,
+        },
+        fides_cloud: {
+          enabled: false,
+        },
       });
-      cy.visit("/add-systems");
+      cy.visit(ADD_SYSTEMS_ROUTE);
       cy.getByTestId("add-systems");
 
       cy.wait("@getPlusHealth");
@@ -74,7 +102,7 @@ describe("Config wizard with plus settings", () => {
 
     it("Can show the scanner as enabled and healthy", () => {
       stubPlus(true);
-      cy.visit("/add-systems");
+      cy.visit(ADD_SYSTEMS_ROUTE);
       cy.getByTestId("add-systems");
 
       cy.wait("@getPlusHealth");
@@ -233,14 +261,13 @@ describe("Config wizard with plus settings", () => {
       cy.getByTestId("add-systems");
     });
 
-    // TODO: Update Cypress test to reflect the nav bar 2.0
-    it.skip("Resets the flow when it is completed", () => {
+    it("Resets the flow when it is completed", () => {
       goToDataFlowScanner();
       cy.wait("@putScanResults");
       cy.getByTestId("scan-results");
       cy.getByTestId("register-btn").click();
-      cy.getByTestId("nav-link-Add Systems").click();
-      cy.getByTestId("setup");
+      cy.visit(ADD_SYSTEMS_ROUTE);
+      cy.getByTestId("add-systems");
     });
 
     it("Can render an error", () => {

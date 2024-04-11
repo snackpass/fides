@@ -5,9 +5,9 @@ import yaml
 from fideslang import model_list
 from fideslang.manifests import load_yaml_into_dict
 
-from fides.cli.utils import print_divider
+from fides.common.utils import echo_green, print_divider
 from fides.core.api_helpers import get_server_resource, list_server_resources
-from fides.core.utils import echo_green, get_manifest_list
+from fides.core.utils import get_manifest_list
 
 MODEL_LIST = model_list
 
@@ -47,7 +47,7 @@ def pull_existing_resources(
                 existing_keys.append(fides_key)
 
                 server_resource = get_server_resource(
-                    url, resource_type, fides_key, headers, raw=True
+                    url, resource_type, fides_key, headers
                 )
 
                 if server_resource:
@@ -83,7 +83,6 @@ def pull_missing_resources(
             headers=headers,
             resource_type=resource,
             exclude_keys=existing_keys,
-            raw=True,
         )
         for resource in MODEL_LIST
     }

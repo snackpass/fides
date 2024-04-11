@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, Generator
 
 import pydash
@@ -6,19 +7,19 @@ import requests
 from multidimensional_urlencode import urlencode as multidimensional_urlencode
 from sqlalchemy.orm import Session
 
-from fides.api.ctl.sql_models import Dataset as CtlDataset
-from fides.api.ops.models.connectionconfig import (
+from fides.api.cryptography import cryptographic_util
+from fides.api.db import session
+from fides.api.models.connectionconfig import (
     AccessLevel,
     ConnectionConfig,
     ConnectionType,
 )
-from fides.api.ops.models.datasetconfig import DatasetConfig
-from fides.api.ops.util.saas_util import (
+from fides.api.models.datasetconfig import DatasetConfig
+from fides.api.models.sql_models import Dataset as CtlDataset
+from fides.api.util.saas_util import (
     load_config_with_replacement,
     load_dataset_with_replacement,
 )
-from fides.lib.cryptography import cryptographic_util
-from fides.lib.db import session
 from tests.ops.test_helpers.vault_client import get_secrets
 
 secrets = get_secrets("stripe")
@@ -118,7 +119,6 @@ def stripe_dataset_config(
 def stripe_create_erasure_data(
     stripe_connection_config: ConnectionConfig, stripe_erasure_identity_email
 ) -> Generator:
-
     stripe_secrets = stripe_connection_config.secrets
 
     base_url = f"https://{stripe_secrets['domain']}"
@@ -142,7 +142,6 @@ def stripe_create_erasure_data(
         "description": "RTF Test Customer",
         "email": stripe_erasure_identity_email,
         "name": "Ethyca RTF",
-        "phone": "+19515551234",
         "preferred_locales": ["en-US"],
         "shipping": {
             "address": {
@@ -154,7 +153,6 @@ def stripe_create_erasure_data(
                 "state": "CA",
             },
             "name": "Ethyca RTF",
-            "phone": "+19515551234",
         },
     }
 
@@ -293,7 +291,7 @@ def stripe_create_erasure_data(
                 "card": {
                     "number": 4242424242424242,
                     "exp_month": 4,
-                    "exp_year": 2023,
+                    "exp_year": datetime.today().year + 1,
                     "cvc": 314,
                 },
                 "billing_details": {"name": customer_data["name"]},
