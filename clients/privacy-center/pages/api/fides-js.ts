@@ -184,9 +184,12 @@ export default async function handler(
       "Bundling generic fides.js & Privacy Center configuration together..."
     );
   }
+  console.log({ current_path: process.cwd() });
+
   const fidesJsFile = tcfEnabled
-    ? "privacy-center/public/lib/fides-tcf.js"
-    : "privacy-center/public/lib/fides.js";
+    ? "./privacy-center/public/lib/fides-tcf.js"
+    : "./privacy-center/public/lib/fides.js";
+
   const fidesJSBuffer = await fsPromises.readFile(fidesJsFile);
   const fidesJS: string = fidesJSBuffer.toString();
   if (!fidesJS || fidesJS === "") {
