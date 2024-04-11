@@ -185,8 +185,8 @@ export default async function handler(
     );
   }
   const fidesJsFile = tcfEnabled
-    ? "public/lib/fides-tcf.js"
-    : "public/lib/fides.js";
+    ? "privacy-center/public/lib/fides-tcf.js"
+    : "privacy-center/public/lib/fides.js";
   const fidesJSBuffer = await fsPromises.readFile(fidesJsFile);
   const fidesJS: string = fidesJSBuffer.toString();
   if (!fidesJS || fidesJS === "") {
