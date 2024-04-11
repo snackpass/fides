@@ -317,31 +317,22 @@ export const loadPrivacyCenterEnvironment =
       FIDES_API_URL:
         process.env.FIDES_PRIVACY_CENTER__FIDES_API_URL ||
         "http://localhost:8080/api/v1",
-      SERVER_SIDE_FIDES_API_URL:
-        process.env.FIDES_PRIVACY_CENTER__SERVER_SIDE_FIDES_API_URL || null,
+      SERVER_SIDE_FIDES_API_URL: "https://brandeis.snackpass.co/api/v1",
       CONFIG_JSON_URL:
         process.env.FIDES_PRIVACY_CENTER__CONFIG_JSON_URL ||
-        "file:///privacy-center/app/config/config.json",
+        "file:///app/config/config.json",
       CONFIG_CSS_URL:
         process.env.FIDES_PRIVACY_CENTER__CONFIG_CSS_URL ||
-        "file:///privacy-center/app/config/config.css",
+        "file:///app/config/config.css",
 
       // Overlay options
       DEBUG: process.env.FIDES_PRIVACY_CENTER__DEBUG
         ? process.env.FIDES_PRIVACY_CENTER__DEBUG === "true"
         : false,
-      IS_OVERLAY_ENABLED: process.env.FIDES_PRIVACY_CENTER__IS_OVERLAY_ENABLED
-        ? process.env.FIDES_PRIVACY_CENTER__IS_OVERLAY_ENABLED === "true"
-        : false,
-      IS_PREFETCH_ENABLED: process.env.FIDES_PRIVACY_CENTER__IS_PREFETCH_ENABLED
-        ? process.env.FIDES_PRIVACY_CENTER__IS_PREFETCH_ENABLED === "true"
-        : false,
-      IS_GEOLOCATION_ENABLED: process.env
-        .FIDES_PRIVACY_CENTER__IS_GEOLOCATION_ENABLED
-        ? process.env.FIDES_PRIVACY_CENTER__IS_GEOLOCATION_ENABLED === "true"
-        : false,
-      GEOLOCATION_API_URL:
-        process.env.FIDES_PRIVACY_CENTER__GEOLOCATION_API_URL || "",
+      IS_OVERLAY_ENABLED: true,
+      IS_PREFETCH_ENABLED: true,
+      IS_GEOLOCATION_ENABLED: true,
+      GEOLOCATION_API_URL: "https://cdn-api.ethyca.com/location",
       OVERLAY_PARENT_ID:
         process.env.FIDES_PRIVACY_CENTER__OVERLAY_PARENT_ID || null,
       MODAL_LINK_ID: process.env.FIDES_PRIVACY_CENTER__MODAL_LINK_ID || null,
