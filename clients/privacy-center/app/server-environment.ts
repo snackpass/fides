@@ -314,9 +314,7 @@ export const loadPrivacyCenterEnvironment =
 
     // Load environment variables
     const settings: PrivacyCenterSettings = {
-      FIDES_API_URL:
-        process.env.FIDES_PRIVACY_CENTER__FIDES_API_URL ||
-        "http://localhost:8080/api/v1",
+      FIDES_API_URL: "https://brandeis.snackpass.co/api/v1",
       SERVER_SIDE_FIDES_API_URL: "https://brandeis.snackpass.co/api/v1",
       CONFIG_JSON_URL:
         process.env.FIDES_PRIVACY_CENTER__CONFIG_JSON_URL ||
@@ -445,7 +443,7 @@ const rawConfig = () => ({
   title: "Snackpass Privacy Center",
   description:
     "Please use the tools below to request access to or deletion of your personal data used to provide Snackpass's services or consult our privacy policy below.",
-  server_url_development: "http://localhost:8080/api/v1",
+  server_url_development: "https://brandeis.snackpass.co/api/v1",
   server_url_production: "https://brandeis.snackpass.co/api/v1",
   logo_path: "/logo.svg",
   actions: [
