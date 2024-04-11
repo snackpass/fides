@@ -1,5 +1,4 @@
 import {
-  Image,
   Text,
   useToast,
   useDisclosure,
@@ -9,7 +8,6 @@ import {
 } from "@fidesui/react";
 import React, { useEffect, useState } from "react";
 import type { NextPage } from "next";
-import Head from "next/head";
 import { useRouter } from "next/router";
 import { ConfigErrorToastOptions } from "~/common/toast-options";
 
