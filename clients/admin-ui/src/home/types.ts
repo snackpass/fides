@@ -1,13 +1,20 @@
-export type ModuleCard = {
-  backgroundColor: string;
+import { FlagNames } from "~/features/common/features";
+import { ScopeRegistryEnum } from "~/types/api";
+
+type ModuleCard = {
   description: string;
-  descriptionColor: string;
-  hoverBorderColor: string;
   href: string;
   key: number;
   name: string;
-  nameColor: string;
   sortOrder: number;
   title: string;
-  titleColor: string;
+  color: string;
 };
+
+export interface ModuleCardConfig extends ModuleCard {
+  requiresSystems?: boolean;
+  requiresConnections?: boolean;
+  requiresPlus?: boolean;
+  scopes: ScopeRegistryEnum[];
+  requiresFlag?: FlagNames;
+}

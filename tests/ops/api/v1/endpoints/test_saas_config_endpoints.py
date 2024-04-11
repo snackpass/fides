@@ -1,31 +1,35 @@
 import json
 from typing import Optional
 from unittest import mock
-from unittest.mock import Mock
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from fides.api.ops.api.v1.scope_registry import (
-    CLIENT_READ,
-    CONNECTION_AUTHORIZE,
-    SAAS_CONFIG_CREATE_OR_UPDATE,
-    SAAS_CONFIG_DELETE,
-    SAAS_CONFIG_READ,
-)
-from fides.api.ops.api.v1.urn_registry import (
-    AUTHORIZE,
-    SAAS_CONFIG,
-    SAAS_CONFIG_VALIDATE,
-    V1_URL_PREFIX,
-)
-from fides.api.ops.models.connectionconfig import (
+from fides.api.models.connectionconfig import (
     AccessLevel,
     ConnectionConfig,
     ConnectionType,
 )
+from fides.common.api.scope_registry import (
+    CLIENT_READ,
+    CONNECTION_AUTHORIZE,
+    CONNECTOR_TEMPLATE_REGISTER,
+    SAAS_CONFIG_CREATE_OR_UPDATE,
+    SAAS_CONFIG_DELETE,
+    SAAS_CONFIG_READ,
+)
+from fides.common.api.v1.urn_registry import (
+    AUTHORIZE,
+    REGISTER_CONNECTOR_TEMPLATE,
+    SAAS_CONFIG,
+    SAAS_CONFIG_VALIDATE,
+    V1_URL_PREFIX,
+)
+from fides.config import CONFIG
 from tests.ops.api.v1.endpoints.test_dataset_endpoints import _reject_key
+from tests.ops.test_helpers.saas_test_utils import create_zip_file
 
 
 @pytest.mark.unit_saas
@@ -244,7 +248,7 @@ class TestPutSaaSConfig:
         )
         saas_config = connection_config.saas_config
         assert saas_config is not None
-        assert len(saas_config["endpoints"]) == 11
+        assert len(saas_config["endpoints"]) == 13
 
 
 def get_saas_config_url(connection_config: Optional[ConnectionConfig] = None) -> str:
@@ -318,8 +322,11 @@ class TestGetSaaSConfig:
             response_body["fides_key"]
             == saas_example_connection_config.get_saas_config().fides_key
         )
-        assert len(response_body["endpoints"]) == 12
+        assert len(response_body["endpoints"]) == 14
         assert response_body["type"] == "custom"
+        assert response_body["endpoints"][11]["skip_processing"] is False
+        assert response_body["endpoints"][12]["skip_processing"] is False
+        assert response_body["endpoints"][13]["skip_processing"] is True
 
 
 @pytest.mark.unit_saas
@@ -437,11 +444,11 @@ class TestAuthorizeConnection:
         assert 403 == response.status_code
 
     @mock.patch(
-        "fides.api.ops.api.v1.endpoints.saas_config_endpoints.OAuth2AuthorizationCodeAuthenticationStrategy.get_authorization_url"
+        "fides.api.api.v1.endpoints.saas_config_endpoints.OAuth2AuthorizationCodeAuthenticationStrategy.get_authorization_url"
     )
     def test_get_authorize_url(
         self,
-        authorization_url_mock: Mock,
+        authorization_url_mock: MagicMock,
         api_client: TestClient,
         authorize_url,
         generate_auth_header,
@@ -450,5 +457,289 @@ class TestAuthorizeConnection:
         authorization_url_mock.return_value = authorization_url
         auth_header = generate_auth_header([CONNECTION_AUTHORIZE])
         response = api_client.get(authorize_url, headers=auth_header)
-        assert response.ok
+        response.raise_for_status()
         assert response.text == f'"{authorization_url}"'
+
+
+class TestRegisterConnectorTemplate:
+    @pytest.fixture
+    def register_connector_template_url(self) -> str:
+        return V1_URL_PREFIX + REGISTER_CONNECTOR_TEMPLATE
+
+    @pytest.fixture
+    def complete_connector_template(
+        self,
+        planet_express_config,
+        planet_express_dataset,
+        planet_express_icon,
+    ):
+        return create_zip_file(
+            {
+                "config.yml": planet_express_config,
+                "dataset.yml": planet_express_dataset,
+                "icon.svg": planet_express_icon,
+            }
+        )
+
+    @pytest.fixture
+    def connector_template_missing_config(
+        self,
+        planet_express_dataset,
+        planet_express_icon,
+    ):
+        return create_zip_file(
+            {
+                "dataset.yml": planet_express_dataset,
+                "icon.svg": planet_express_icon,
+            }
+        )
+
+    @pytest.fixture
+    def connector_template_wrong_contents_config(
+        self,
+        planet_express_dataset,
+        planet_express_icon,
+    ):
+        return create_zip_file(
+            {
+                "config.yml": "planet_express_config",
+                "dataset.yml": planet_express_dataset,
+                "icon.svg": planet_express_icon,
+            }
+        )
+
+    @pytest.fixture
+    def connector_template_invalid_config(
+        self,
+        planet_express_invalid_config,
+        planet_express_dataset,
+        planet_express_icon,
+    ):
+        return create_zip_file(
+            {
+                "config.yml": planet_express_invalid_config,
+                "dataset.yml": planet_express_dataset,
+                "icon.svg": planet_express_icon,
+            }
+        )
+
+    @pytest.fixture
+    def connector_template_missing_dataset(
+        self,
+        planet_express_config,
+        planet_express_icon,
+    ):
+        return create_zip_file(
+            {
+                "config.yml": planet_express_config,
+                "icon.svg": planet_express_icon,
+            }
+        )
+
+    @pytest.fixture
+    def connector_template_wrong_contents_dataset(
+        self,
+        planet_express_config,
+        planet_express_icon,
+    ):
+        return create_zip_file(
+            {
+                "config.yml": planet_express_config,
+                "dataset.yml": "planet_express_dataset",
+                "icon.svg": planet_express_icon,
+            }
+        )
+
+    @pytest.fixture
+    def connector_template_invalid_dataset(
+        self,
+        planet_express_config,
+        planet_express_invalid_dataset,
+        planet_express_icon,
+    ):
+        return create_zip_file(
+            {
+                "config.yml": planet_express_config,
+                "dataset.yml": planet_express_invalid_dataset,
+                "icon.svg": planet_express_icon,
+            }
+        )
+
+    @pytest.fixture
+    def connector_template_no_icon(
+        self,
+        planet_express_config,
+        planet_express_dataset,
+    ):
+        return create_zip_file(
+            {
+                "config.yml": planet_express_config,
+                "dataset.yml": planet_express_dataset,
+            }
+        )
+
+    @pytest.fixture
+    def connector_template_duplicate_configs(
+        self,
+        planet_express_config,
+        planet_express_dataset,
+        planet_express_icon,
+    ):
+        return create_zip_file(
+            {
+                "1_config.yml": planet_express_config,
+                "2_config.yml": planet_express_config,
+                "dataset.yml": planet_express_dataset,
+                "icon.svg": planet_express_icon,
+            }
+        )
+
+    @pytest.fixture
+    def connector_template_duplicate_datasets(
+        self,
+        planet_express_config,
+        planet_express_dataset,
+        planet_express_icon,
+    ):
+        return create_zip_file(
+            {
+                "config.yml": planet_express_config,
+                "1_dataset.yml": planet_express_dataset,
+                "2_dataset.yml": planet_express_dataset,
+                "icon.svg": planet_express_icon,
+            }
+        )
+
+    @pytest.fixture
+    def connector_template_duplicate_icons(
+        self,
+        planet_express_config,
+        planet_express_dataset,
+        planet_express_icon,
+    ):
+        return create_zip_file(
+            {
+                "config.yml": planet_express_config,
+                "dataset.yml": planet_express_dataset,
+                "1_icon.svg": planet_express_icon,
+                "2_icon.svg": planet_express_icon,
+            }
+        )
+
+    def test_register_connector_template_wrong_scope(
+        self,
+        api_client: TestClient,
+        register_connector_template_url,
+        generate_auth_header,
+        complete_connector_template,
+    ):
+        auth_header = generate_auth_header(scopes=[CLIENT_READ])
+        response = api_client.post(
+            register_connector_template_url,
+            headers=auth_header,
+            files={
+                "file": (
+                    "template.zip",
+                    complete_connector_template,
+                    "application/zip",
+                )
+            },
+        )
+        assert response.status_code == 403
+
+    @pytest.mark.parametrize(
+        "zip_file, status_code, details",
+        [
+            (
+                "complete_connector_template",
+                200,
+                {"message": "Connector template successfully registered."},
+            ),
+            (
+                "connector_template_missing_config",
+                400,
+                {"detail": "Zip file does not contain a config.yml file."},
+            ),
+            (
+                "connector_template_wrong_contents_config",
+                400,
+                {
+                    "detail": "Config contents do not contain a 'saas_config' key at the root level. For example, check formatting, specifically indentation."
+                },
+            ),
+            (
+                "connector_template_invalid_config",
+                400,
+                {
+                    "detail": "1 validation error for SaaSConfig\ntest_request\n  field required (type=value_error.missing)"
+                },
+            ),
+            (
+                "connector_template_missing_dataset",
+                400,
+                {"detail": "Zip file does not contain a dataset.yml file."},
+            ),
+            (
+                "connector_template_wrong_contents_dataset",
+                400,
+                {
+                    "detail": "Dataset contents do not contain a 'dataset' key at the root level. For example, check formatting, specifically indentation."
+                },
+            ),
+            (
+                "connector_template_invalid_dataset",
+                400,
+                {
+                    "detail": "1 validation error for Dataset\ncollections -> 0 -> name\n  field required (type=value_error.missing)"
+                },
+            ),
+            (
+                "connector_template_no_icon",
+                200,
+                {"message": "Connector template successfully registered."},
+            ),
+            (
+                "connector_template_duplicate_configs",
+                400,
+                {
+                    "detail": "Multiple files ending with config.yml found, only one is allowed."
+                },
+            ),
+            (
+                "connector_template_duplicate_datasets",
+                400,
+                {
+                    "detail": "Multiple files ending with dataset.yml found, only one is allowed."
+                },
+            ),
+            (
+                "connector_template_duplicate_icons",
+                400,
+                {"detail": "Multiple svg files found, only one is allowed."},
+            ),
+        ],
+    )
+    def test_register_connector_template(
+        self,
+        api_client: TestClient,
+        register_connector_template_url,
+        generate_auth_header,
+        zip_file,
+        status_code,
+        details,
+        request,
+    ):
+        auth_header = generate_auth_header(scopes=[CONNECTOR_TEMPLATE_REGISTER])
+        response = api_client.post(
+            register_connector_template_url,
+            headers=auth_header,
+            files={
+                "file": (
+                    "template.zip",
+                    request.getfixturevalue(zip_file).read(),
+                    "application/zip",
+                )
+            },
+        )
+        assert response.status_code == status_code
+        assert response.json() == details

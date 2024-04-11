@@ -5,25 +5,22 @@ from uuid import uuid4
 import pytest
 from starlette.testclient import TestClient
 
-from fides.api.ops.api.v1 import scope_registry as scopes
-from fides.api.ops.api.v1.urn_registry import POLICY_DETAIL as POLICY_DETAIL_URI
-from fides.api.ops.api.v1.urn_registry import POLICY_LIST as POLICY_CREATE_URI
-from fides.api.ops.api.v1.urn_registry import RULE_DETAIL as RULE_DETAIL_URI
-from fides.api.ops.api.v1.urn_registry import RULE_LIST as RULE_CREATE_URI
-from fides.api.ops.api.v1.urn_registry import (
+from fides.api.models.client import ClientDetail
+from fides.api.models.policy import ActionType, DrpAction, Policy, Rule, RuleTarget
+from fides.api.service.masking.strategy.masking_strategy_nullify import (
+    NullMaskingStrategy,
+)
+from fides.api.util.data_category import DataCategory, generate_fides_data_categories
+from fides.common.api import scope_registry as scopes
+from fides.common.api.v1.urn_registry import POLICY_DETAIL as POLICY_DETAIL_URI
+from fides.common.api.v1.urn_registry import POLICY_LIST as POLICY_CREATE_URI
+from fides.common.api.v1.urn_registry import RULE_DETAIL as RULE_DETAIL_URI
+from fides.common.api.v1.urn_registry import RULE_LIST as RULE_CREATE_URI
+from fides.common.api.v1.urn_registry import (
     RULE_TARGET_DETAIL,
     RULE_TARGET_LIST,
     V1_URL_PREFIX,
 )
-from fides.api.ops.models.policy import ActionType, DrpAction, Policy, Rule, RuleTarget
-from fides.api.ops.service.masking.strategy.masking_strategy_nullify import (
-    NullMaskingStrategy,
-)
-from fides.api.ops.util.data_category import (
-    DataCategory,
-    generate_fides_data_categories,
-)
-from fides.lib.models.client import ClientDetail
 
 
 class TestGetPolicies:
@@ -808,6 +805,28 @@ class TestCreatePolicies:
         ).first()
         pol.delete(db=db)
 
+    def test_create_policy_as_root(
+        self, db, api_client: TestClient, root_auth_header, storage_config, url
+    ):
+        data = [
+            {
+                "name": "test create policy api",
+                "action_type": "erasure",
+                "data_category": DataCategory("user").value,
+                "storage_destination_key": storage_config.key,
+            }
+        ]
+        auth_header = root_auth_header
+        resp = api_client.patch(url, json=data, headers=auth_header)
+        assert resp.status_code == 200
+        response_data = resp.json()["succeeded"]
+        assert len(response_data) == 1
+
+        pol = Policy.filter(
+            db=db, conditions=(Policy.key == response_data[0]["key"])
+        ).first()
+        pol.delete(db=db)
+
     def test_create_policy_with_key(
         self,
         url,
@@ -952,7 +971,6 @@ class TestCreateRules:
         policy,
         storage_config,
     ):
-
         data = [
             {
                 "name": "test access rule",
@@ -1024,6 +1042,36 @@ class TestCreateRules:
         assert "key" in rule_data["storage_destination"]
         assert "secrets" not in rule_data["storage_destination"]
 
+    def test_create_access_rule_for_policy_as_root(
+        self,
+        api_client: TestClient,
+        url,
+        root_auth_header,
+        policy,
+        storage_config,
+    ):
+        data = [
+            {
+                "name": "test access rule",
+                "action_type": ActionType.access.value,
+                "storage_destination_key": storage_config.key,
+            }
+        ]
+        auth_header = root_auth_header
+        resp = api_client.patch(
+            url,
+            json=data,
+            headers=auth_header,
+        )
+
+        assert resp.status_code == 200
+        response_data = resp.json()["succeeded"]
+        assert len(response_data) == 1
+        rule_data = response_data[0]
+        assert "storage_destination" in rule_data
+        assert "key" in rule_data["storage_destination"]
+        assert "secrets" not in rule_data["storage_destination"]
+
     def test_create_access_rule_for_policy_no_storage_specified(
         self,
         api_client: TestClient,
@@ -1062,7 +1110,6 @@ class TestCreateRules:
         generate_auth_header,
         policy,
     ):
-
         data = [
             {
                 "name": "test erasure rule",
@@ -1238,6 +1285,82 @@ class TestRuleTargets:
         assert resp.status_code == 200
         response_data = resp.json()["succeeded"]
         assert len(response_data) == 2
+
+    def test_create_rule_targets_as_root(
+        self,
+        api_client: TestClient,
+        root_auth_header,
+        policy,
+    ):
+        rule = policy.rules[0]
+        data = [
+            {
+                "data_category": DataCategory("user.name").value,
+            },
+            {
+                "data_category": DataCategory("user.contact.email").value,
+            },
+        ]
+        auth_header = root_auth_header
+        resp = api_client.patch(
+            self.get_rule_url(policy.key, rule.key),
+            json=data,
+            headers=auth_header,
+        )
+
+        assert resp.status_code == 200
+        response_data = resp.json()["succeeded"]
+        assert len(response_data) == 2
+
+    def test_create_rule_target_with_custom_category(
+        self,
+        api_client: TestClient,
+        generate_auth_header,
+        policy,
+        custom_data_category,
+    ):
+        rule = policy.rules[0]
+        data = [
+            {
+                "data_category": custom_data_category.fides_key,
+            }
+        ]
+        auth_header = generate_auth_header(scopes=[scopes.RULE_CREATE_OR_UPDATE])
+        resp = api_client.patch(
+            self.get_rule_url(policy.key, rule.key),
+            json=data,
+            headers=auth_header,
+        )
+
+        assert resp.status_code == 200
+        response_data = resp.json()["succeeded"]
+        assert len(response_data) == 1
+
+    def test_create_rule_target_with_invalid_category(
+        self,
+        api_client: TestClient,
+        generate_auth_header,
+        policy,
+    ):
+        rule = policy.rules[0]
+        invalid_data_category = "invalid_category"
+        data = [
+            {
+                "data_category": invalid_data_category,
+            }
+        ]
+        auth_header = generate_auth_header(scopes=[scopes.RULE_CREATE_OR_UPDATE])
+        resp = api_client.patch(
+            self.get_rule_url(policy.key, rule.key),
+            json=data,
+            headers=auth_header,
+        )
+
+        assert resp.status_code == 422
+        assert (
+            resp.json()["detail"]
+            == f"Invalid data categories: ['{invalid_data_category}']"
+        )
 
     def test_create_duplicate_rule_targets(
         self,

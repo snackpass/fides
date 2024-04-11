@@ -5,18 +5,18 @@ import pytest
 import requests
 from sqlalchemy.orm import Session
 
-from fides.api.ctl.sql_models import Dataset as CtlDataset
-from fides.api.ops.models.connectionconfig import (
+from fides.api.cryptography import cryptographic_util
+from fides.api.models.connectionconfig import (
     AccessLevel,
     ConnectionConfig,
     ConnectionType,
 )
-from fides.api.ops.models.datasetconfig import DatasetConfig
-from fides.api.ops.util.saas_util import (
+from fides.api.models.datasetconfig import DatasetConfig
+from fides.api.models.sql_models import Dataset as CtlDataset
+from fides.api.util.saas_util import (
     load_config_with_replacement,
     load_dataset_with_replacement,
 )
-from fides.lib.cryptography import cryptographic_util
 from tests.ops.test_helpers.vault_client import get_secrets
 
 secrets = get_secrets("adobe_campaign")
@@ -128,7 +128,6 @@ def adobe_campaign_erasure_data(
     adobe_campaign_connection_config: ConnectionConfig,
     adobe_campaign_erasure_identity_email: str,
 ) -> None:
-
     secrets = adobe_campaign_connection_config.secrets
     base_url = f"https://{secrets['domain']}/{secrets['organization_id']}"
     headers = {

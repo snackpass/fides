@@ -1,81 +1,44 @@
-import { Heading, Spinner, Stack, Text, useToast } from "@fidesui/react";
-import { SerializedError } from "@reduxjs/toolkit";
-import { FetchBaseQueryError } from "@reduxjs/toolkit/dist/query/fetchBaseQuery";
+import { Heading, Spinner, Stack, Text } from "@fidesui/react";
 import NextLink from "next/link";
 
-import { useAppDispatch } from "~/app/hooks";
-import { getErrorMessage, isErrorResult } from "~/features/common/helpers";
-import { errorToastParams, successToastParams } from "~/features/common/toast";
-import { setActiveSystem, useUpdateSystemMutation } from "~/features/system";
-import { PrivacyDeclaration, System } from "~/types/api";
-
-import { useTaxonomyData } from "./PrivacyDeclarationForm";
-import PrivacyDeclarationManager from "./PrivacyDeclarationManager";
+import { usePrivacyDeclarationData } from "~/features/system/privacy-declarations/hooks";
+import PrivacyDeclarationFormTab from "~/features/system/system-form-declaration-tab/PrivacyDeclarationFormTab";
+import { SystemResponse } from "~/types/api";
 
 interface Props {
-  system: System;
+  system: SystemResponse;
 }
 
 const PrivacyDeclarationStep = ({ system }: Props) => {
-  const toast = useToast();
-  const dispatch = useAppDispatch();
-  const [updateSystemMutationTrigger] = useUpdateSystemMutation();
-  const { isLoading, ...dataProps } = useTaxonomyData();
+  const { isLoading, ...dataProps } = usePrivacyDeclarationData({
+    includeDatasets: true,
+    includeDisabled: false,
+  });
 
-  const handleSave = async (
-    updatedDeclarations: PrivacyDeclaration[],
-    isDelete?: boolean
-  ) => {
-    const systemBodyWithDeclaration = {
-      ...system,
-      privacy_declarations: updatedDeclarations,
-    };
+  const allEnabledDataCategories = dataProps.allDataCategories.filter(
+    (category) => category.active
+  );
 
-    const handleResult = (
-      result:
-        | { data: System }
-        | { error: FetchBaseQueryError | SerializedError }
-    ) => {
-      if (isErrorResult(result)) {
-        const errorMsg = getErrorMessage(
-          result.error,
-          "An unexpected error occurred while updating the system. Please try again."
-        );
+  const allEnabledDataUses = dataProps.allDataUses.filter((use) => use.active);
 
-        toast(errorToastParams(errorMsg));
-        return false;
-      }
-      toast.closeAll();
-      toast(
-        successToastParams(
-          isDelete ? "Data use case deleted" : "Data use case saved"
-        )
-      );
-      dispatch(setActiveSystem(result.data));
-      return true;
-    };
+  const allEnabledDataSubjects = dataProps.allDataSubjects.filter(
+    (subject) => subject.active
+  );
 
-    const updateSystemResult = await updateSystemMutationTrigger(
-      systemBodyWithDeclaration
-    );
-
-    return handleResult(updateSystemResult);
-  };
-
-  const collisionWarning = () => {
-    toast(
-      errorToastParams(
-        "A declaration already exists with that data use in this system. Please supply a different data use."
-      )
-    );
+  const filteredDataProps = {
+    ...dataProps,
+    allDataCategories: allEnabledDataCategories,
+    allDataUses: allEnabledDataUses,
+    allDataSubject: allEnabledDataSubjects,
+    cookies: system.cookies,
   };
 
   return (
-    <Stack spacing={3} data-testid="privacy-declaration-step">
+    <Stack spacing={3} data-testid="privacy-declaration-step" minWidth={580}>
       <Heading as="h3" size="md">
         Data uses
       </Heading>
-      <Text fontSize="sm">
+      <Text fontSize="sm" fontWeight="medium">
         Data Uses describe the business purpose for which the personal data is
         processed or collected. Within a Data Use, you assign which categories
         of personal information are collected for this purpose and for which
@@ -91,11 +54,11 @@ const PrivacyDeclarationStep = ({ system }: Props) => {
       {isLoading ? (
         <Spinner />
       ) : (
-        <PrivacyDeclarationManager
+        <PrivacyDeclarationFormTab
           system={system}
-          onCollision={collisionWarning}
-          onSave={handleSave}
-          {...dataProps}
+          includeCustomFields
+          includeCookies
+          {...filteredDataProps}
         />
       )}
     </Stack>

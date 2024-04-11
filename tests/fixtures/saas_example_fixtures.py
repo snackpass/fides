@@ -6,30 +6,36 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import ObjectDeletedError
 from toml import load as load_toml
 
-from fides.api.ctl.sql_models import Dataset as CtlDataset
-from fides.api.ops.models.connectionconfig import (
+from fides.api.models.client import ClientDetail
+from fides.api.models.connectionconfig import (
     AccessLevel,
     ConnectionConfig,
     ConnectionType,
 )
-from fides.api.ops.models.datasetconfig import DatasetConfig
-from fides.api.ops.models.policy import ActionType, Policy, Rule, RuleTarget
-from fides.api.ops.schemas.saas.saas_config import ParamValue
-from fides.api.ops.schemas.saas.strategy_configuration import (
+from fides.api.models.datasetconfig import DatasetConfig
+from fides.api.models.policy import Policy, Rule, RuleTarget
+from fides.api.models.sql_models import Dataset as CtlDataset
+from fides.api.schemas.policy import ActionType
+from fides.api.schemas.saas.saas_config import ParamValue
+from fides.api.schemas.saas.strategy_configuration import (
     OAuth2AuthorizationCodeConfiguration,
 )
-from fides.api.ops.service.masking.strategy.masking_strategy_nullify import (
+from fides.api.service.masking.strategy.masking_strategy_nullify import (
     NullMaskingStrategy,
 )
-from fides.api.ops.service.masking.strategy.masking_strategy_random_string_rewrite import (
+from fides.api.service.masking.strategy.masking_strategy_random_string_rewrite import (
     RandomStringRewriteMaskingStrategy,
 )
-from fides.api.ops.service.masking.strategy.masking_strategy_string_rewrite import (
+from fides.api.service.masking.strategy.masking_strategy_string_rewrite import (
     StringRewriteMaskingStrategy,
 )
-from fides.api.ops.util.data_category import DataCategory
-from fides.api.ops.util.saas_util import load_config
-from fides.lib.models.client import ClientDetail
+from fides.api.util.data_category import DataCategory
+from fides.api.util.saas_util import (
+    encode_file_contents,
+    load_as_string,
+    load_config,
+    load_yaml_as_string,
+)
 from tests.fixtures.application_fixtures import load_dataset
 
 
@@ -52,22 +58,22 @@ def saas_example_secrets():
 
 @pytest.fixture
 def saas_example_config() -> Dict:
-    return load_config("data/saas/config/saas_example_config.yml")
+    return load_config("tests/fixtures/saas/test_data/saas_example_config.yml")
 
 
 @pytest.fixture
 def saas_external_example_config() -> Dict:
-    return load_config("data/saas/config/saas_external_example_config.yml")
+    return load_config("tests/fixtures/saas/test_data/saas_external_example_config.yml")
 
 
 @pytest.fixture
 def saas_example_dataset() -> Dict:
-    return load_dataset("data/saas/dataset/saas_example_dataset.yml")[0]
+    return load_dataset("tests/fixtures/saas/test_data/saas_example_dataset.yml")[0]
 
 
 @pytest.fixture
 def saas_ctl_dataset(db: Session) -> Dict:
-    dataset = load_dataset("data/saas/dataset/saas_example_dataset.yml")[0]
+    dataset = load_dataset("tests/fixtures/saas/test_data/saas_example_dataset.yml")[0]
     ctl_dataset = CtlDataset.create_from_dataset_dict(db, dataset)
     yield ctl_dataset
     ctl_dataset.delete(db)
@@ -75,7 +81,7 @@ def saas_ctl_dataset(db: Session) -> Dict:
 
 @pytest.fixture
 def saas_external_example_dataset() -> Dict:
-    return load_dataset("data/saas/dataset/saas_example_dataset.yml")[1]
+    return load_dataset("tests/fixtures/saas/test_data/saas_example_dataset.yml")[1]
 
 
 @pytest.fixture(scope="function")
@@ -280,7 +286,7 @@ def oauth2_authorization_code_configuration() -> OAuth2AuthorizationCodeConfigur
 
 @pytest.fixture(scope="function")
 def oauth2_authorization_code_connection_config(
-    db: Session, oauth2_authorization_code_configuration
+    db: Session, oauth2_authorization_code_configuration, system
 ) -> Generator:
     secrets = {
         "domain": "localhost",
@@ -293,8 +299,8 @@ def oauth2_authorization_code_connection_config(
     saas_config = {
         "fides_key": "oauth2_authorization_code_connector",
         "name": "OAuth2 Auth Code Connector",
-        "type": "custom",
-        "description": "Generic OAuth2 connector for testing",
+        "type": "salesforce",
+        "description": "Salesforce connector for testing OAuth2",
         "version": "0.0.1",
         "connector_params": [{"name": item} for item in secrets.keys()],
         "client_config": {
@@ -319,6 +325,7 @@ def oauth2_authorization_code_connection_config(
             "access": AccessLevel.write,
             "secrets": secrets,
             "saas_config": saas_config,
+            "system_id": system.id,
         },
     )
     yield connection_config
@@ -389,7 +396,7 @@ def erasure_policy_complete_mask(
         db=db,
         data={
             "client_id": oauth_client.id,
-            "data_category": DataCategory("user.gender").value,
+            "data_category": DataCategory("user.demographic.gender").value,
             "rule_id": user_gender_rule.id,
         },
     )
@@ -561,7 +568,7 @@ def erasure_policy_complete_mask(
         db=db,
         data={
             "client_id": oauth_client.id,
-            "data_category": DataCategory("user.date_of_birth").value,
+            "data_category": DataCategory("user.demographic.date_of_birth").value,
             "rule_id": user_date_of_birth_rule.id,
         },
     )
@@ -621,3 +628,45 @@ def erasure_policy_complete_mask(
         erasure_policy.delete(db)
     except ObjectDeletedError:
         pass
+
+
+@pytest.fixture
+def planet_express_config() -> str:
+    return load_yaml_as_string(
+        "tests/fixtures/saas/test_data/planet_express/planet_express_config.yml"
+    )
+
+
+@pytest.fixture
+def planet_express_invalid_config() -> str:
+    return load_yaml_as_string(
+        "tests/fixtures/saas/test_data/planet_express/planet_express_invalid_config.yml"
+    )
+
+
+@pytest.fixture
+def planet_express_dataset() -> str:
+    return load_yaml_as_string(
+        "tests/fixtures/saas/test_data/planet_express/planet_express_dataset.yml"
+    )
+
+
+@pytest.fixture
+def planet_express_invalid_dataset() -> str:
+    return load_yaml_as_string(
+        "tests/fixtures/saas/test_data/planet_express/planet_express_invalid_dataset.yml"
+    )
+
+
+@pytest.fixture
+def planet_express_icon() -> str:
+    return load_as_string(
+        "tests/fixtures/saas/test_data/planet_express/planet_express.svg"
+    )
+
+
+@pytest.fixture
+def planet_express_functions() -> str:
+    return load_as_string(
+        "tests/fixtures/saas/test_data/planet_express/planet_express_functions.py"
+    )

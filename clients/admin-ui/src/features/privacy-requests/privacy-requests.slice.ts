@@ -1,15 +1,18 @@
-import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
-import { addCommonHeaders } from "common/CommonHeaders";
+import { createSelector, createSlice, PayloadAction } from "@reduxjs/toolkit";
 
+import { baseApi } from "~/features/common/api.slice";
 import {
   BulkPostPrivacyRequests,
+  GPPApplicationConfigResponse,
+  PlusApplicationConfig as ApplicationConfig,
+  PrivacyCenterConfig,
+  PrivacyRequestCreate,
   PrivacyRequestNotificationInfo,
+  SecurityApplicationConfig,
 } from "~/types/api";
 
 import type { RootState } from "../../app/store";
 import { BASE_URL } from "../../constants";
-import { selectToken } from "../auth";
 import {
   ConfigMessagingDetailsRequest,
   ConfigMessagingRequest,
@@ -17,7 +20,7 @@ import {
   ConfigStorageDetailsRequest,
   ConfigStorageSecretsDetailsRequest,
   DenyPrivacyRequest,
-  GetUpdloadedManualWebhookDataRequest,
+  GetUploadedManualWebhookDataRequest,
   MessagingConfigResponse,
   PatchUploadManualWebhookDataRequest,
   PrivacyRequestEntity,
@@ -54,6 +57,7 @@ export function mapFiltersToSearchParams({
 
   return {
     include_identities: "true",
+    include_custom_privacy_request_fields: "true",
     ...(status && status.length > 0 ? { status: status.join("&status=") } : {}),
     ...(id ? { request_id: id } : {}),
     ...(fromISO ? { created_gt: fromISO.toISOString() } : {}),
@@ -238,17 +242,7 @@ export const {
 export const { reducer } = subjectRequestsSlice;
 
 // Privacy requests API
-export const privacyRequestApi = createApi({
-  reducerPath: "privacyRequestApi",
-  baseQuery: fetchBaseQuery({
-    baseUrl: BASE_URL,
-    prepareHeaders: (headers, { getState }) => {
-      const token: string | null = selectToken(getState() as RootState);
-      addCommonHeaders(headers, token);
-      return headers;
-    },
-  }),
-  tagTypes: ["Request", "Notification"],
+export const privacyRequestApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     approveRequest: build.mutation<
       PrivacyRequestEntity,
@@ -301,6 +295,17 @@ export const privacyRequestApi = createApi({
         });
       },
     }),
+    postPrivacyRequest: build.mutation<
+      PrivacyRequestResponse,
+      PrivacyRequestCreate[]
+    >({
+      query: (payload) => ({
+        url: `privacy-request/authenticated`,
+        method: "POST",
+        body: payload,
+      }),
+      invalidatesTags: () => ["Request"],
+    }),
     getNotification: build.query<PrivacyRequestNotificationInfo, void>({
       query: () => ({
         url: `privacy-request/notification`,
@@ -316,12 +321,20 @@ export const privacyRequestApi = createApi({
         return cloneResponse;
       },
     }),
-    getUploadedManualWebhookData: build.query<
+    getUploadedManualAccessWebhookData: build.query<
       any,
-      GetUpdloadedManualWebhookDataRequest
+      GetUploadedManualWebhookDataRequest
     >({
       query: (params) => ({
         url: `privacy-request/${params.privacy_request_id}/access_manual_webhook/${params.connection_key}`,
+      }),
+    }),
+    getUploadedManualErasureWebhookData: build.query<
+      any,
+      GetUploadedManualWebhookDataRequest
+    >({
+      query: (params) => ({
+        url: `privacy-request/${params.privacy_request_id}/erasure_manual_webhook/${params.connection_key}`,
       }),
     }),
     resumePrivacyRequestFromRequiresInput: build.mutation<any, string>({
@@ -349,15 +362,43 @@ export const privacyRequestApi = createApi({
       }),
       invalidatesTags: ["Notification"],
     }),
-    createConfigurationSettings: build.mutation<
+    patchConfigurationSettings: build.mutation<
       any,
-      MessagingConfigResponse | StorageConfigResponse
+      | ApplicationConfig
+      | MessagingConfigResponse
+      | StorageConfigResponse
+      | SecurityApplicationConfig
     >({
       query: (params) => ({
         url: `/config`,
         method: "PATCH",
         body: params,
       }),
+      // Switching GPP settings causes the backend to update privacy notices behind the scenes, so
+      // invalidate privacy notices when a patch goes through.
+      invalidatesTags: ["Configuration Settings", "Privacy Notices"],
+    }),
+    putConfigurationSettings: build.mutation<
+      ApplicationConfig,
+      ApplicationConfig
+    >({
+      query: (params) => ({
+        url: `/config`,
+        method: "PUT",
+        body: params,
+      }),
+      invalidatesTags: ["Configuration Settings"],
+    }),
+    getConfigurationSettings: build.query<
+      Record<string, any>,
+      { api_set: boolean }
+    >({
+      query: ({ api_set }) => ({
+        url: `/config`,
+        method: "GET",
+        params: { api_set },
+      }),
+      providesTags: ["Configuration Settings"],
     }),
     getActiveStorage: build.query<any, void>({
       query: () => ({
@@ -383,7 +424,7 @@ export const privacyRequestApi = createApi({
       query: (params) => ({
         url: `storage/default/${params.type}/secret`,
         method: "PUT",
-        body: params,
+        body: params.details,
       }),
     }),
     getActiveMessagingProvider: build.query<any, void>({
@@ -401,7 +442,7 @@ export const privacyRequestApi = createApi({
       ConfigMessagingDetailsRequest
     >({
       query: (params) => ({
-        url: `messaging/default/${params.type}`,
+        url: `messaging/default`,
         method: "PUT",
         body: params,
       }),
@@ -411,12 +452,19 @@ export const privacyRequestApi = createApi({
       ConfigMessagingSecretsRequest
     >({
       query: (params) => ({
-        url: `messaging/default/${params.type}/secret`,
+        url: `messaging/default/${params.service_type}/secret`,
         method: "PUT",
+        body: params.details,
+      }),
+    }),
+    createTestConnectionMessage: build.mutation<any, any>({
+      query: (params) => ({
+        url: `messaging/config/test`,
+        method: "POST",
         body: params,
       }),
     }),
-    uploadManualWebhookData: build.mutation<
+    uploadManualAccessWebhookData: build.mutation<
       any,
       PatchUploadManualWebhookDataRequest
     >({
@@ -424,6 +472,22 @@ export const privacyRequestApi = createApi({
         url: `privacy-request/${params.privacy_request_id}/access_manual_webhook/${params.connection_key}`,
         method: "PATCH",
         body: params.body,
+      }),
+    }),
+    uploadManualErasureWebhookData: build.mutation<
+      any,
+      PatchUploadManualWebhookDataRequest
+    >({
+      query: (params) => ({
+        url: `privacy-request/${params.privacy_request_id}/erasure_manual_webhook/${params.connection_key}`,
+        method: "PATCH",
+        body: params.body,
+      }),
+    }),
+    getPrivacyCenterConfig: build.query<PrivacyCenterConfig, void>({
+      query: () => ({
+        method: "GET",
+        url: `plus/privacy-center-config`,
       }),
     }),
   }),
@@ -434,19 +498,109 @@ export const {
   useBulkRetryMutation,
   useDenyRequestMutation,
   useGetAllPrivacyRequestsQuery,
+  usePostPrivacyRequestMutation,
   useGetNotificationQuery,
-  useGetUploadedManualWebhookDataQuery,
   useResumePrivacyRequestFromRequiresInputMutation,
   useRetryMutation,
   useSaveNotificationMutation,
-  useUploadManualWebhookDataMutation,
+  useUploadManualAccessWebhookDataMutation,
+  useUploadManualErasureWebhookDataMutation,
+  useGetPrivacyCenterConfigQuery,
   useGetStorageDetailsQuery,
   useCreateStorageMutation,
   useCreateStorageSecretsMutation,
-  useCreateConfigurationSettingsMutation,
+  usePatchConfigurationSettingsMutation,
+  usePutConfigurationSettingsMutation,
+  useGetConfigurationSettingsQuery,
   useGetMessagingConfigurationDetailsQuery,
   useGetActiveMessagingProviderQuery,
   useGetActiveStorageQuery,
   useCreateMessagingConfigurationMutation,
   useCreateMessagingConfigurationSecretsMutation,
+  useCreateTestConnectionMessageMutation,
 } = privacyRequestApi;
+
+export type CORSOrigins = Pick<SecurityApplicationConfig, "cors_origins">;
+/**
+ * NOTE:
+ * 1. "configSet" stores the results from `/api/v1/config?api_set=false`, and
+ *    contains the config settings that are set exclusively on the server via
+ *    TOML/ENV configuration.
+ * 2. "apiSet" stores the results from `/api/v1/config?api_set=true`, and
+ *    are the config settings that we can read/write via the API.
+ *
+ * These two settings are merged together at runtime by Fides when enforcing
+ * CORS origins, and although they're awkwardly-named concepts (try saying
+ * "config set config settings" 10 times fast), we're mirroring the API here to
+ * be consistent!
+ */
+export type CORSOriginsSettings = {
+  configSet: SecurityApplicationConfig & { cors_origin_regex?: string };
+  apiSet: SecurityApplicationConfig;
+};
+
+export const selectCORSOrigins: (state: RootState) => CORSOriginsSettings =
+  createSelector(
+    [
+      (state) => state,
+      privacyRequestApi.endpoints.getConfigurationSettings.select({
+        api_set: true,
+      }),
+      privacyRequestApi.endpoints.getConfigurationSettings.select({
+        api_set: false,
+      }),
+    ],
+    (_, { data: apiSetConfig }, { data: configSetConfig }) => {
+      // Return a single state contains the current CORS config with both
+      // config-set and api-set values
+      const currentCORSOriginSettings: CORSOriginsSettings = {
+        configSet: {
+          cors_origins: configSetConfig?.security?.cors_origins || [],
+          cors_origin_regex: configSetConfig?.security?.cors_origin_regex,
+        },
+        apiSet: {
+          cors_origins: apiSetConfig?.security?.cors_origins || [],
+        },
+      };
+      return currentCORSOriginSettings;
+    }
+  );
+
+export const selectApplicationConfig = () =>
+  createSelector(
+    [
+      (state) => state,
+      privacyRequestApi.endpoints.getConfigurationSettings.select({
+        api_set: true,
+      }),
+    ],
+    (_, { data }) => data as ApplicationConfig
+  );
+
+const defaultGppSettings: GPPApplicationConfigResponse = {
+  enabled: false,
+};
+export const selectGppSettings: (
+  state: RootState
+) => GPPApplicationConfigResponse = createSelector(
+  [
+    (state) => state,
+    privacyRequestApi.endpoints.getConfigurationSettings.select({
+      api_set: true,
+    }),
+    privacyRequestApi.endpoints.getConfigurationSettings.select({
+      api_set: false,
+    }),
+  ],
+  (state, { data: apiSetConfig }, { data: config }) => {
+    const hasApi = apiSetConfig && apiSetConfig.gpp;
+    const hasDefault = config && config.gpp;
+    if (hasApi && hasDefault) {
+      return { ...config.gpp, ...apiSetConfig.gpp };
+    }
+    if (hasDefault) {
+      return config.gpp;
+    }
+    return defaultGppSettings;
+  }
+);

@@ -1,7 +1,7 @@
 dataset:
   - fides_key: <instance_fides_key>
     name: Braze Dataset
-    description: A sample dataset representing the Braze connector for Fidesops
+    description: A sample dataset representing the Braze connector for Fides
     collections:
       - name: user
         fields:
@@ -36,7 +36,7 @@ dataset:
             fidesops_meta:
               data_type: string
           - name: dob
-            data_categories: [user.date_of_birth]
+            data_categories: [user.demographic.date_of_birth]
             fidesops_meta:
               data_type: string
           - name: country
@@ -52,7 +52,7 @@ dataset:
             fidesops_meta:
               data_type: string
           - name: gender
-            data_categories: [user.gender]
+            data_categories: [user.demographic.gender]
             fidesops_meta:
               data_type: string
           - name: phone

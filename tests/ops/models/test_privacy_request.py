@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from time import sleep
-from typing import List
+from typing import List, Tuple
 from uuid import uuid4
 
 import pytest
@@ -8,33 +8,53 @@ import requests_mock
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from fides.api.ops.common_exceptions import (
+from fides.api.common_exceptions import (
     ClientUnsuccessfulException,
     ManualWebhookFieldsUnset,
     NoCachedManualWebhookEntry,
     PrivacyRequestPaused,
 )
-from fides.api.ops.graph.config import CollectionAddress
-from fides.api.ops.models.policy import CurrentStep, Policy
-from fides.api.ops.models.privacy_request import (
+from fides.api.graph.config import CollectionAddress
+from fides.api.models.policy import CurrentStep, Policy
+from fides.api.models.privacy_request import (
     CheckpointActionRequired,
+    ConsentRequest,
     PrivacyRequest,
     PrivacyRequestError,
     PrivacyRequestNotifications,
     PrivacyRequestStatus,
+    ProvidedIdentity,
     can_run_checkpoint,
 )
-from fides.api.ops.schemas.redis_cache import Identity
-from fides.api.ops.service.connectors.manual_connector import ManualAction
-from fides.api.ops.util.cache import FidesopsRedis, get_identity_cache_key
-from fides.api.ops.util.constants import API_DATE_FORMAT
-from fides.core.config import CONFIG
+from fides.api.schemas.privacy_request import CustomPrivacyRequestField
+from fides.api.schemas.redis_cache import Identity
+from fides.api.service.connectors.manual_connector import ManualAction
+from fides.api.util.cache import FidesopsRedis, get_identity_cache_key
+from fides.api.util.constants import API_DATE_FORMAT
+from fides.config import CONFIG
 
 paused_location = CollectionAddress("test_dataset", "test_collection")
 
 
+def test_provided_identity_to_identity(
+    provided_identity_and_consent_request: Tuple,
+) -> None:
+    provided_identity = provided_identity_and_consent_request[0]
+    identity = provided_identity.as_identity_schema()
+    assert identity.email == "test@email.com"
+
+
+def test_blank_provided_identity_to_identity(
+    empty_provided_identity: ProvidedIdentity,
+) -> None:
+    identity = empty_provided_identity.as_identity_schema()
+    assert identity.email is None
+
+
 def test_privacy_request(
-    db: Session, policy: Policy, privacy_request: PrivacyRequest
+    db: Session,
+    policy: Policy,
+    privacy_request: PrivacyRequest,
 ) -> None:
     from_db = PrivacyRequest.get(db=db, object_id=privacy_request.id)
     assert from_db is not None
@@ -457,12 +477,12 @@ class TestCachePausedLocation:
 
 
 class TestCacheManualInput:
-    def test_cache_manual_input(self, privacy_request):
+    def test_cache_manual_access_input(self, privacy_request):
         manual_data = [{"id": 1, "name": "Jane"}, {"id": 2, "name": "Hank"}]
 
-        privacy_request.cache_manual_input(paused_location, manual_data)
+        privacy_request.cache_manual_access_input(paused_location, manual_data)
         assert (
-            privacy_request.get_manual_input(
+            privacy_request.get_manual_access_input(
                 paused_location,
             )
             == manual_data
@@ -470,10 +490,10 @@ class TestCacheManualInput:
 
     def test_cache_empty_manual_input(self, privacy_request):
         manual_data = []
-        privacy_request.cache_manual_input(paused_location, manual_data)
+        privacy_request.cache_manual_access_input(paused_location, manual_data)
 
         assert (
-            privacy_request.get_manual_input(
+            privacy_request.get_manual_access_input(
                 paused_location,
             )
             == []
@@ -481,7 +501,7 @@ class TestCacheManualInput:
 
     def test_no_manual_data_in_cache(self, privacy_request):
         assert (
-            privacy_request.get_manual_input(
+            privacy_request.get_manual_access_input(
                 paused_location,
             )
             is None
@@ -507,7 +527,6 @@ class TestCacheManualErasureCount:
 
 class TestPrivacyRequestCacheFailedStep:
     def test_cache_failed_step_and_collection(self, privacy_request):
-
         privacy_request.cache_failed_checkpoint_details(
             step=CurrentStep.erasure, collection=paused_location
         )
@@ -592,17 +611,21 @@ class TestCacheEmailConnectorTemplateContents:
         ]
 
 
-class TestCacheManualWebhookInput:
-    def test_cache_manual_webhook_input(self, privacy_request, access_manual_webhook):
+class TestCacheManualWebhookAccessInput:
+    def test_cache_manual_webhook_access_input(
+        self, privacy_request, access_manual_webhook
+    ):
         with pytest.raises(NoCachedManualWebhookEntry):
-            privacy_request.get_manual_webhook_input_strict(access_manual_webhook)
+            privacy_request.get_manual_webhook_access_input_strict(
+                access_manual_webhook
+            )
 
-        privacy_request.cache_manual_webhook_input(
+        privacy_request.cache_manual_webhook_access_input(
             manual_webhook=access_manual_webhook,
             input_data={"email": "customer-1@example.com", "last_name": "Customer"},
         )
 
-        assert privacy_request.get_manual_webhook_input_strict(
+        assert privacy_request.get_manual_webhook_access_input_strict(
             access_manual_webhook
         ) == {
             "email": "customer-1@example.com",
@@ -610,12 +633,12 @@ class TestCacheManualWebhookInput:
         }
 
     def test_cache_no_fields_supplied(self, privacy_request, access_manual_webhook):
-        privacy_request.cache_manual_webhook_input(
+        privacy_request.cache_manual_webhook_access_input(
             manual_webhook=access_manual_webhook,
             input_data={},
         )
 
-        assert privacy_request.get_manual_webhook_input_strict(
+        assert privacy_request.get_manual_webhook_access_input_strict(
             access_manual_webhook
         ) == {
             "email": None,
@@ -623,14 +646,14 @@ class TestCacheManualWebhookInput:
         }, "Missing fields persisted as None"
 
     def test_cache_some_fields_supplied(self, privacy_request, access_manual_webhook):
-        privacy_request.cache_manual_webhook_input(
+        privacy_request.cache_manual_webhook_access_input(
             manual_webhook=access_manual_webhook,
             input_data={
                 "email": "customer-1@example.com",
             },
         )
 
-        assert privacy_request.get_manual_webhook_input_strict(
+        assert privacy_request.get_manual_webhook_access_input_strict(
             access_manual_webhook
         ) == {
             "email": "customer-1@example.com",
@@ -641,7 +664,7 @@ class TestCacheManualWebhookInput:
         self, privacy_request, access_manual_webhook
     ):
         with pytest.raises(ValidationError):
-            privacy_request.cache_manual_webhook_input(
+            privacy_request.cache_manual_webhook_access_input(
                 manual_webhook=access_manual_webhook,
                 input_data={
                     "email": "customer-1@example.com",
@@ -658,7 +681,7 @@ class TestCacheManualWebhookInput:
         access_manual_webhook.save(db)
 
         with pytest.raises(ValidationError):
-            privacy_request.cache_manual_webhook_input(
+            privacy_request.cache_manual_webhook_access_input(
                 manual_webhook=access_manual_webhook,
                 input_data={"email": "customer-1@example.com", "last_name": "Customer"},
             )
@@ -668,7 +691,7 @@ class TestCacheManualWebhookInput:
     ):
         """Test the use case where new fields have been added to the webhook definition
         since the webhook data was saved to the privacy request"""
-        privacy_request.cache_manual_webhook_input(
+        privacy_request.cache_manual_webhook_access_input(
             manual_webhook=access_manual_webhook,
             input_data={"last_name": "Customer", "email": "jane@example.com"},
         )
@@ -679,14 +702,16 @@ class TestCacheManualWebhookInput:
         access_manual_webhook.save(db)
 
         with pytest.raises(ManualWebhookFieldsUnset):
-            privacy_request.get_manual_webhook_input_strict(access_manual_webhook)
+            privacy_request.get_manual_webhook_access_input_strict(
+                access_manual_webhook
+            )
 
     def test_fields_removed_from_webhook_definition(
         self, db, privacy_request, access_manual_webhook
     ):
         """Test the use case where fields have been removed from the webhook definition
         since the webhook data was saved to the privacy request"""
-        privacy_request.cache_manual_webhook_input(
+        privacy_request.cache_manual_webhook_access_input(
             manual_webhook=access_manual_webhook,
             input_data={"last_name": "Customer", "email": "jane@example.com"},
         )
@@ -697,13 +722,15 @@ class TestCacheManualWebhookInput:
         access_manual_webhook.save(db)
 
         with pytest.raises(ValidationError):
-            privacy_request.get_manual_webhook_input_strict(access_manual_webhook)
+            privacy_request.get_manual_webhook_access_input_strict(
+                access_manual_webhook
+            )
 
     def test_non_strict_retrieval_from_cache(
         self, db, privacy_request, access_manual_webhook
     ):
         """Test non-strict retrieval, we ignore extra fields saved and serialize missing fields as None"""
-        privacy_request.cache_manual_webhook_input(
+        privacy_request.cache_manual_webhook_access_input(
             manual_webhook=access_manual_webhook,
             input_data={"email": "customer-1@example.com", "last_name": "Customer"},
         )
@@ -718,7 +745,7 @@ class TestCacheManualWebhookInput:
         ]
         access_manual_webhook.save(db)
 
-        overlap_input = privacy_request.get_manual_webhook_input_non_strict(
+        overlap_input = privacy_request.get_manual_webhook_access_input_non_strict(
             access_manual_webhook
         )
         assert overlap_input == {
@@ -728,11 +755,155 @@ class TestCacheManualWebhookInput:
         }, "Ignores 'email' field saved to privacy request"
 
 
+class TestCacheManualWebhookErasureInput:
+    def test_cache_manual_webhook_erasure_input(
+        self, privacy_request, access_manual_webhook
+    ):
+        with pytest.raises(NoCachedManualWebhookEntry):
+            privacy_request.get_manual_webhook_erasure_input_strict(
+                access_manual_webhook
+            )
+
+        privacy_request.cache_manual_webhook_erasure_input(
+            manual_webhook=access_manual_webhook,
+            input_data={"email": False, "last_name": True},
+        )
+
+        assert privacy_request.get_manual_webhook_erasure_input_strict(
+            access_manual_webhook
+        ) == {
+            "email": False,
+            "last_name": True,
+        }
+
+    def test_cache_no_fields_supplied(self, privacy_request, access_manual_webhook):
+        privacy_request.cache_manual_webhook_erasure_input(
+            manual_webhook=access_manual_webhook,
+            input_data={},
+        )
+
+        assert privacy_request.get_manual_webhook_erasure_input_strict(
+            access_manual_webhook
+        ) == {
+            "email": None,
+            "last_name": None,
+        }, "Missing fields persisted as None"
+
+    def test_cache_some_fields_supplied(self, privacy_request, access_manual_webhook):
+        privacy_request.cache_manual_webhook_erasure_input(
+            manual_webhook=access_manual_webhook,
+            input_data={
+                "email": False,
+            },
+        )
+
+        assert privacy_request.get_manual_webhook_erasure_input_strict(
+            access_manual_webhook
+        ) == {
+            "email": False,
+            "last_name": None,
+        }, "Missing fields saved as None"
+
+    def test_cache_extra_fields_not_in_webhook_specs(
+        self, privacy_request, access_manual_webhook
+    ):
+        with pytest.raises(ValidationError):
+            privacy_request.cache_manual_webhook_erasure_input(
+                manual_webhook=access_manual_webhook,
+                input_data={
+                    "email": False,
+                    "bad_field": "not_specified",
+                },
+            )
+
+    def test_cache_manual_webhook_no_fields_defined(
+        self, db, privacy_request, access_manual_webhook
+    ):
+        access_manual_webhook.fields = (
+            None  # Specifically testing the None case to cover our bases
+        )
+        access_manual_webhook.save(db)
+
+        with pytest.raises(ValidationError):
+            privacy_request.cache_manual_webhook_erasure_input(
+                manual_webhook=access_manual_webhook,
+                input_data={"email": False, "last_name": True},
+            )
+
+    def test_fields_added_to_webhook_definition(
+        self, db, privacy_request, access_manual_webhook
+    ):
+        """Test the use case where new fields have been added to the webhook definition
+        since the webhook data was saved to the privacy request"""
+        privacy_request.cache_manual_webhook_erasure_input(
+            manual_webhook=access_manual_webhook,
+            input_data={"last_name": True, "email": False},
+        )
+
+        access_manual_webhook.fields.append(
+            {"pii_field": "Phone", "dsr_package_label": "phone"}
+        )
+        access_manual_webhook.save(db)
+
+        with pytest.raises(ManualWebhookFieldsUnset):
+            privacy_request.get_manual_webhook_erasure_input_strict(
+                access_manual_webhook
+            )
+
+    def test_fields_removed_from_webhook_definition(
+        self, db, privacy_request, access_manual_webhook
+    ):
+        """Test the use case where fields have been removed from the webhook definition
+        since the webhook data was saved to the privacy request"""
+        privacy_request.cache_manual_webhook_erasure_input(
+            manual_webhook=access_manual_webhook,
+            input_data={"last_name": True, "email": False},
+        )
+
+        access_manual_webhook.fields = [
+            {"pii_field": "last_name", "dsr_package_label": "last_name"}
+        ]
+        access_manual_webhook.save(db)
+
+        with pytest.raises(ValidationError):
+            privacy_request.get_manual_webhook_erasure_input_strict(
+                access_manual_webhook
+            )
+
+    def test_non_strict_retrieval_from_cache(
+        self, db, privacy_request, access_manual_webhook
+    ):
+        """Test non-strict retrieval, we ignore extra fields saved and serialize missing fields as None"""
+        privacy_request.cache_manual_webhook_erasure_input(
+            manual_webhook=access_manual_webhook,
+            input_data={"email": False, "last_name": True},
+        )
+
+        access_manual_webhook.fields = [  # email field deleted
+            {"pii_field": "First Name", "dsr_package_label": "first_name"},  # New Field
+            {
+                "pii_field": "Last Name",
+                "dsr_package_label": "last_name",
+            },  # Existing Field
+            {"pii_field": "Phone", "dsr_package_label": "phone"},  # New Field
+        ]
+        access_manual_webhook.save(db)
+
+        overlap_input = privacy_request.get_manual_webhook_erasure_input_non_strict(
+            access_manual_webhook
+        )
+        assert overlap_input == {
+            "first_name": None,
+            "last_name": True,
+            "phone": None,
+        }, "Ignores 'email' field saved to privacy request"
+
+
 class TestCanRunFromCheckpoint:
     def test_can_run_from_checkpoint(self):
         assert (
             can_run_checkpoint(
-                request_checkpoint=CurrentStep.erasure_email_post_send,
+                request_checkpoint=CurrentStep.email_post_send,
                 from_checkpoint=CurrentStep.erasure,
             )
             is True
@@ -795,3 +966,223 @@ def test_privacy_request_error_notification(db, policy):
     ).all()
 
     assert len(unsent_errors) == 1
+
+
+class TestPrivacyRequestCustomFieldFunctions:
+    """Fides has two settings around custom privacy request fields:
+
+    - CONFIG.execution.allow_custom_privacy_request_field_collection - whether or not to store custom privacy request fields in the database
+    - CONFIG.execution.allow_custom_privacy_request_fields_in_request_execution - whether or not to use custom privacy request fields in request execution
+
+    These two constraints are enforced by controlling the behavior of
+    the cache and persist functions on the PrivacyRequest model.
+    """
+
+    def test_cache_custom_privacy_request_fields(
+        self,
+        allow_custom_privacy_request_field_collection_enabled,
+        allow_custom_privacy_request_fields_in_request_execution_enabled,
+    ):
+        privacy_request = PrivacyRequest(id=str(uuid4()))
+        privacy_request.cache_custom_privacy_request_fields(
+            custom_privacy_request_fields={
+                "first_name": CustomPrivacyRequestField(
+                    label="First name", value="John"
+                ),
+                "last_name": CustomPrivacyRequestField(label="Last name", value="Doe"),
+                "subscriber_ids": CustomPrivacyRequestField(
+                    label="Subscriber IDs", value=["123", "456"]
+                ),
+                "account_ids": CustomPrivacyRequestField(
+                    label="Account IDs", value=[123, 456]
+                ),
+                "support_id": CustomPrivacyRequestField(label="Support ID", value=1),
+            }
+        )
+        assert privacy_request.get_cached_custom_privacy_request_fields() == {
+            "first_name": "John",
+            "last_name": "Doe",
+            "subscriber_ids": ["123", "456"],
+            "account_ids": [123, 456],
+            "support_id": 1,
+        }
+
+    def test_cache_custom_privacy_request_fields_collection_disabled(
+        self,
+        allow_custom_privacy_request_field_collection_disabled,
+    ):
+        """Custom privacy request fields should not be cached if collection is disabled"""
+        privacy_request = PrivacyRequest(id=str(uuid4()))
+        privacy_request.cache_custom_privacy_request_fields(
+            custom_privacy_request_fields={
+                "first_name": CustomPrivacyRequestField(
+                    label="First name", value="John"
+                ),
+                "last_name": CustomPrivacyRequestField(label="Last name", value="Doe"),
+                "subscriber_ids": CustomPrivacyRequestField(
+                    label="Subscriber IDs", value=["123", "456"]
+                ),
+                "account_ids": CustomPrivacyRequestField(
+                    label="Account IDs", value=[123, 456]
+                ),
+                "support_id": CustomPrivacyRequestField(label="Support ID", value=1),
+            }
+        )
+        assert privacy_request.get_cached_custom_privacy_request_fields() == {}
+
+    def test_cache_custom_privacy_request_fields_collection_enabled_use_disabled(
+        self,
+        allow_custom_privacy_request_field_collection_enabled,
+        allow_custom_privacy_request_fields_in_request_execution_disabled,
+    ):
+        """Custom privacy request fields should not be cached if use is disabled"""
+        privacy_request = PrivacyRequest(id=str(uuid4()))
+        privacy_request.cache_custom_privacy_request_fields(
+            custom_privacy_request_fields={
+                "first_name": CustomPrivacyRequestField(
+                    label="First name", value="John"
+                ),
+                "last_name": CustomPrivacyRequestField(label="Last name", value="Doe"),
+                "subscriber_ids": CustomPrivacyRequestField(
+                    label="Subscriber IDs", value=["123", "456"]
+                ),
+                "account_ids": CustomPrivacyRequestField(
+                    label="Account IDs", value=[123, 456]
+                ),
+                "support_id": CustomPrivacyRequestField(label="Support ID", value=1),
+            }
+        )
+        assert privacy_request.get_cached_custom_privacy_request_fields() == {}
+
+    def test_persist_custom_privacy_request_fields(
+        self,
+        db,
+        privacy_request,
+        allow_custom_privacy_request_field_collection_enabled,
+        allow_custom_privacy_request_fields_in_request_execution_enabled,
+    ):
+        privacy_request.persist_custom_privacy_request_fields(
+            db=db,
+            custom_privacy_request_fields={
+                "first_name": CustomPrivacyRequestField(
+                    label="First name", value="John"
+                ),
+                "last_name": CustomPrivacyRequestField(label="Last name", value="Doe"),
+                "subscriber_ids": CustomPrivacyRequestField(
+                    label="Subscriber IDs", value=["123", "456"]
+                ),
+                "account_ids": CustomPrivacyRequestField(
+                    label="Account IDs", value=[123, 456]
+                ),
+                "support_id": CustomPrivacyRequestField(label="Support ID", value=1),
+            },
+        )
+        assert privacy_request.get_persisted_custom_privacy_request_fields() == {
+            "first_name": {"label": "First name", "value": "John"},
+            "last_name": {"label": "Last name", "value": "Doe"},
+            "subscriber_ids": {"label": "Subscriber IDs", "value": ["123", "456"]},
+            "account_ids": {"label": "Account IDs", "value": [123, 456]},
+            "support_id": {"label": "Support ID", "value": 1},
+        }
+
+    def test_persist_custom_privacy_request_fields_collection_disabled(
+        self,
+        db,
+        privacy_request,
+        allow_custom_privacy_request_field_collection_disabled,
+    ):
+        """Custom privacy request fields should not be persisted if collection is disabled"""
+        privacy_request.persist_custom_privacy_request_fields(
+            db=db,
+            custom_privacy_request_fields={
+                "first_name": CustomPrivacyRequestField(
+                    label="First name", value="John"
+                ),
+                "last_name": CustomPrivacyRequestField(label="Last name", value="Doe"),
+                "subscriber_ids": CustomPrivacyRequestField(
+                    label="Subscriber IDs", value=["123", "456"]
+                ),
+                "account_ids": CustomPrivacyRequestField(
+                    label="Account IDs", value=[123, 456]
+                ),
+                "support_id": CustomPrivacyRequestField(label="Support ID", value=1),
+            },
+        )
+        assert privacy_request.get_persisted_custom_privacy_request_fields() == {}
+
+
+class TestConsentRequestCustomFieldFunctions:
+    """Similar to the above tests but for the ConsentRequest model but only testing persisting and retrieving from the database."""
+
+    @pytest.fixture(scope="function")
+    def consent_request(self, db) -> ConsentRequest:
+        provided_identity_data = {
+            "privacy_request_id": None,
+            "field_name": "email",
+            "encrypted_value": {"value": "test@email.com"},
+        }
+        provided_identity = ProvidedIdentity.create(db, data=provided_identity_data)
+
+        consent_request = ConsentRequest.create(
+            db=db,
+            data={
+                "provided_identity_id": provided_identity.id,
+            },
+        )
+
+        yield consent_request
+
+        consent_request.delete(db)
+
+    def test_persist_custom_privacy_request_fields(
+        self,
+        db,
+        consent_request,
+        allow_custom_privacy_request_field_collection_enabled,
+        allow_custom_privacy_request_fields_in_request_execution_enabled,
+    ):
+        consent_request.persist_custom_privacy_request_fields(
+            db=db,
+            custom_privacy_request_fields={
+                "first_name": CustomPrivacyRequestField(
+                    label="First name", value="John"
+                ),
+                "last_name": CustomPrivacyRequestField(label="Last name", value="Doe"),
+                "subscriber_ids": CustomPrivacyRequestField(
+                    label="Subscriber IDs", value=["123", "456"]
+                ),
+                "account_ids": CustomPrivacyRequestField(
+                    label="Account IDs", value=[123, 456]
+                ),
+            },
+        )
+        assert consent_request.get_persisted_custom_privacy_request_fields() == {
+            "first_name": {"label": "First name", "value": "John"},
+            "last_name": {"label": "Last name", "value": "Doe"},
+            "subscriber_ids": {"label": "Subscriber IDs", "value": ["123", "456"]},
+            "account_ids": {"label": "Account IDs", "value": [123, 456]},
+        }
+
+    def test_persist_custom_privacy_request_fields_collection_disabled(
+        self,
+        db,
+        consent_request,
+        allow_custom_privacy_request_field_collection_disabled,
+    ):
+        """Custom privacy request fields should not be persisted if collection is disabled"""
+        consent_request.persist_custom_privacy_request_fields(
+            db=db,
+            custom_privacy_request_fields={
+                "first_name": CustomPrivacyRequestField(
+                    label="First name", value="John"
+                ),
+                "last_name": CustomPrivacyRequestField(label="Last name", value="Doe"),
+                "subscriber_ids": CustomPrivacyRequestField(
+                    label="Subscriber IDs", value=["123", "456"]
+                ),
+                "account_ids": CustomPrivacyRequestField(
+                    label="Account IDs", value=[123, 456]
+                ),
+            },
+        )
+        assert consent_request.get_persisted_custom_privacy_request_fields() == {}

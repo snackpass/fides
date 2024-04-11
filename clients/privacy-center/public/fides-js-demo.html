@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>fides-js script demo page</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!--
+      Pass along any params to the fides.js script. For example, visiting
+      http://localhost:3000/fides-js-demo.html?geolocation=fr-id
+      will pass a geolocation query param to fides.js
+    -->
+    <script>
+      (function () {
+        const VALID_ISO_3166_LOCATION_REGEX = /^\w{2,3}(-\w{2,3})?$/;
+        const params = new URLSearchParams(window.location.search);
+        const geolocation = params.get("geolocation");
+        const isValid = VALID_ISO_3166_LOCATION_REGEX.test(geolocation);
+        const src = `/fides.js${isValid ? `?geolocation=${geolocation}` : ""}`;
+
+        document.write('<script src="' + src + '"><\/script>');
+      })();
+      var deleteCookie = function () {
+        document.cookie =
+          "fides_consent=;expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+        location.reload();
+      };
+    </script>
+    <style>
+      body {
+        margin: 16px;
+      }
+      pre {
+        background-color: #eee;
+        padding: 16px;
+      }
+      #fides-modal-link {
+        border: none;
+        padding: 0;
+        background: none;
+        cursor: pointer;
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+
+  <body>
+    <main>
+      <h1>fides.js demo page</h1>
+      <p>This page exists to demonstrate the fides.js script.</p>
+
+      <div>
+        <button type="button" onclick="deleteCookie()">
+          delete cookie and reload
+        </button>
+      </div>
+
+      <div id="fides-embed-container"></div>
+
+      <h2>Was the fides global defined?</h2>
+      <pre id="has-fides"></pre>
+
+      <h2>Consent JSON</h2>
+      <pre id="consent-json"></pre>
+
+      <h2>Consent Modal Link</h2>
+      <button id="fides-modal-link"></button>
+
+      <h2>Consent Experience</h2>
+      <pre id="consent-experience"></pre>
+
+      <h2>Geolocation</h2>
+      <pre id="consent-geolocation"></pre>
+
+      <h2>Consent Options</h2>
+      <pre id="consent-options"></pre>
+    </main>
+  </body>
+
+  <script>
+    (() => {
+      const hasFides = typeof Fides === "object";
+      document.getElementById("has-fides").textContent = String(hasFides);
+
+      if (!hasFides) {
+        return;
+      }
+
+      // Once Fides.js is initialized, show some debug information on the page
+      const onInitialized = () => {
+        console.log("Fides has been initialized!");
+        // Pretty-print the fides consent object and add it to the page.
+        document.getElementById("consent-json").textContent = JSON.stringify(
+          Fides.consent,
+          null,
+          2
+        );
+
+        // Display the fides configured modal link label (if any).
+        document.getElementById("fides-modal-link").textContent =
+          Fides.getModalLinkLabel();
+
+        // Pretty-print the fides experience config object and add it to the page.
+        document.getElementById("consent-experience").textContent =
+          JSON.stringify(Fides.experience, null, 2);
+
+        // Pretty-print the fides geolocation object and add it to the page.
+        document.getElementById("consent-geolocation").textContent =
+          JSON.stringify(Fides.geolocation, null, 2);
+
+        // Pretty-print the fides options object and add it to the page.
+        document.getElementById("consent-options").textContent = JSON.stringify(
+          Fides.options,
+          null,
+          2
+        );
+
+        // Test behavior of integrations that can be configured without/before their platform scripts.
+        Fides.gtm();
+        Fides.meta({
+          consent: Fides.consent.tracking,
+          dataUse: Fides.consent.data_sales,
+        });
+      };
+
+      // Handle both synchronous & asynchronous initialization
+      if (Fides.initialized) {
+        onInitialized();
+      } else {
+        window.addEventListener("FidesInitialized", onInitialized);
+      }
+    })();
+  </script>
+</html>

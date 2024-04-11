@@ -3,24 +3,22 @@ from time import sleep
 
 import pytest
 
-from fides.api.ops.graph.graph import DatasetGraph
-from fides.api.ops.models.privacy_request import PrivacyRequest
-from fides.api.ops.schemas.redis_cache import Identity
-from fides.api.ops.service.connectors import get_connector
-from fides.api.ops.task import graph_task
-from fides.api.ops.task.graph_task import get_cached_data_for_erasures
-from fides.core.config import CONFIG
+from fides.api.graph.graph import DatasetGraph
+from fides.api.models.privacy_request import PrivacyRequest
+from fides.api.schemas.redis_cache import Identity
+from fides.api.service.connectors import get_connector
+from fides.api.task import graph_task
+from fides.api.task.graph_task import get_cached_data_for_erasures
+from fides.config import CONFIG
 from tests.ops.graph.graph_test_util import assert_rows_match
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_square
 def test_square_connection_test(square_connection_config) -> None:
     get_connector(square_connection_config).test_connection()
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_square
 @pytest.mark.asyncio
 async def test_square_access_request_task_by_email(
     db,
@@ -104,7 +102,6 @@ async def test_square_access_request_task_by_email(
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_square
 @pytest.mark.asyncio
 async def test_square_access_request_task_by_phone_number(
     db,
@@ -163,7 +160,6 @@ async def test_square_access_request_task_by_phone_number(
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_square
 @pytest.mark.asyncio
 async def test_square_erasure_request_task(
     db,

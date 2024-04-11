@@ -19,6 +19,8 @@ server_port = 8080
 
 [user]
 analytics_opt_out = false
+username = "root_user"
+password = "Testpassword1!"
 
 [redis]
 host = "redis"
@@ -59,3 +61,8 @@ task_always_eager = true
 
 [notifications]
 notification_service_type = "mailgun"
+
+[consent]
+tcf_enabled = false
+ac_enabled = false
+override_vendor_purposes = false

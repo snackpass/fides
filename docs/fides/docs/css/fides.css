@@ -61,12 +61,18 @@ body {
     font-family: 'Source Sans Pro', sans-serif;
 }
 
+
+
 .md-header{
     background-color: var(--md-header-bg-color);
 }
 
 .md-tabs {
     background-color: var(--md-header-bg-color);
+}
+
+.md-grid {
+    max-width: 85%;
 }
 
 .md-header .md-logo img {

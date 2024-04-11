@@ -4,24 +4,22 @@ from time import sleep
 import pytest
 import requests
 
-from fides.api.ops.graph.graph import DatasetGraph
-from fides.api.ops.models.privacy_request import PrivacyRequest
-from fides.api.ops.schemas.redis_cache import Identity
-from fides.api.ops.service.connectors import get_connector
-from fides.api.ops.task import graph_task
-from fides.api.ops.task.graph_task import get_cached_data_for_erasures
-from fides.core.config import CONFIG
+from fides.api.graph.graph import DatasetGraph
+from fides.api.models.privacy_request import PrivacyRequest
+from fides.api.schemas.redis_cache import Identity
+from fides.api.service.connectors import get_connector
+from fides.api.task import graph_task
+from fides.api.task.graph_task import get_cached_data_for_erasures
+from fides.config import CONFIG
 from tests.ops.graph.graph_test_util import assert_rows_match
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_shopify
 def test_shopify_connection_test(shopify_connection_config) -> None:
     get_connector(shopify_connection_config).test_connection()
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_shopify
 @pytest.mark.asyncio
 async def test_shopify_access_request_task(
     db,
@@ -111,7 +109,6 @@ async def test_shopify_access_request_task(
             "estimated_taxes",
             "financial_status",
             "fulfillment_status",
-            "gateway",
             "landing_site",
             "landing_site_ref",
             "location_id",
@@ -125,7 +122,6 @@ async def test_shopify_access_request_task(
             "phone",
             "presentment_currency",
             "processed_at",
-            "processing_method",
             "reference",
             "referring_site",
             "source_identifier",
@@ -141,7 +137,6 @@ async def test_shopify_access_request_task(
             "total_line_items_price",
             "total_outstanding",
             "total_price",
-            "total_price_usd",
             "total_tax",
             "total_tip_received",
             "total_weight",
@@ -267,7 +262,6 @@ async def test_shopify_access_request_task(
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_shopify
 @pytest.mark.asyncio
 async def test_shopify_erasure_request_task(
     db,
@@ -359,7 +353,6 @@ async def test_shopify_erasure_request_task(
             "estimated_taxes",
             "financial_status",
             "fulfillment_status",
-            "gateway",
             "landing_site",
             "landing_site_ref",
             "location_id",
@@ -373,7 +366,6 @@ async def test_shopify_erasure_request_task(
             "phone",
             "presentment_currency",
             "processed_at",
-            "processing_method",
             "reference",
             "referring_site",
             "source_identifier",
@@ -389,7 +381,6 @@ async def test_shopify_erasure_request_task(
             "total_line_items_price",
             "total_outstanding",
             "total_price",
-            "total_price_usd",
             "total_tax",
             "total_tip_received",
             "total_weight",

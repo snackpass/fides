@@ -10,7 +10,7 @@ import {
 import NextLink from "next/link";
 import React from "react";
 
-import { DATASTORE_CONNECTION_ROUTE } from "~/constants";
+import { DATASTORE_CONNECTION_ROUTE } from "~/features/common/nav/v2/routes";
 import { ConnectionType } from "~/types/api";
 
 import { AccessLevel } from "./constants";
@@ -65,6 +65,7 @@ const ConnectionMenu: React.FC<ConnectionMenuProps> = ({
           connection_type={connection_type}
           access_type={access_type}
           name={name}
+          isSwitch={false}
         />
         <DeleteConnectionModal connection_key={connection_key} />
       </MenuList>

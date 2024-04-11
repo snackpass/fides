@@ -8,32 +8,29 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from fides.api.ops.api.v1.scope_registry import (
+from fides.api.models.policy import DrpAction
+from fides.api.models.privacy_request import (
+    PrivacyRequest,
+    PrivacyRequestError,
+    PrivacyRequestNotifications,
+    PrivacyRequestStatus,
+)
+from fides.api.schemas.privacy_request import PrivacyRequestDRPStatus
+from fides.api.util.cache import get_drp_request_body_cache_key, get_identity_cache_key
+from fides.common.api.scope_registry import (
     POLICY_READ,
     PRIVACY_REQUEST_READ,
     PRIVACY_REQUEST_REVIEW,
     STORAGE_CREATE_OR_UPDATE,
 )
-from fides.api.ops.api.v1.urn_registry import (
+from fides.common.api.v1.urn_registry import (
     DRP_DATA_RIGHTS,
     DRP_EXERCISE,
     DRP_REVOKE,
     DRP_STATUS,
     V1_URL_PREFIX,
 )
-from fides.api.ops.models.policy import DrpAction
-from fides.api.ops.models.privacy_request import (
-    PrivacyRequest,
-    PrivacyRequestError,
-    PrivacyRequestNotifications,
-    PrivacyRequestStatus,
-)
-from fides.api.ops.schemas.privacy_request import PrivacyRequestDRPStatus
-from fides.api.ops.util.cache import (
-    get_drp_request_body_cache_key,
-    get_identity_cache_key,
-)
-from fides.core.config import CONFIG
+from fides.config import CONFIG
 
 
 class TestCreateDrpPrivacyRequest:
@@ -42,7 +39,7 @@ class TestCreateDrpPrivacyRequest:
         return V1_URL_PREFIX + DRP_EXERCISE
 
     @mock.patch(
-        "fides.api.ops.service.privacy_request.request_runner_service.run_privacy_request.delay"
+        "fides.api.service.privacy_request.request_runner_service.run_privacy_request.delay"
     )
     def test_create_drp_privacy_request(
         self,
@@ -110,7 +107,7 @@ class TestCreateDrpPrivacyRequest:
         assert run_access_request_mock.called
 
     @mock.patch(
-        "fides.api.ops.service.privacy_request.request_runner_service.run_privacy_request.delay"
+        "fides.api.service.privacy_request.request_runner_service.run_privacy_request.delay"
     )
     def test_create_drp_privacy_request_unsupported_identity_props(
         self,
@@ -121,7 +118,6 @@ class TestCreateDrpPrivacyRequest:
         policy_drp_action,
         cache,
     ):
-
         identity = {"email": "test@example.com", "address": "something"}
         encoded_identity: str = jwt.encode(
             identity, CONFIG.security.drp_jwt_secret, algorithm="HS256"
@@ -181,7 +177,6 @@ class TestCreateDrpPrivacyRequest:
         api_client: TestClient,
         policy_drp_action,
     ):
-
         original_secret = CONFIG.security.drp_jwt_secret
         CONFIG.security.drp_jwt_secret = None
         identity = {"email": "test@example.com"}
@@ -203,7 +198,6 @@ class TestCreateDrpPrivacyRequest:
         api_client: TestClient,
         policy_drp_action,
     ):
-
         identity = {"email": "test@example.com"}
         encoded_identity: str = jwt.encode(
             identity, CONFIG.security.drp_jwt_secret, algorithm="HS256"
@@ -224,7 +218,6 @@ class TestCreateDrpPrivacyRequest:
         api_client: TestClient,
         policy_drp_action,
     ):
-
         identity = {"email": "test@example.com"}
         encoded_identity: str = jwt.encode(
             identity, CONFIG.security.drp_jwt_secret, algorithm="HS256"
@@ -245,7 +238,6 @@ class TestCreateDrpPrivacyRequest:
         api_client: TestClient,
         policy,
     ):
-
         identity = {"email": "test@example.com"}
         encoded_identity: str = jwt.encode(
             identity, CONFIG.security.drp_jwt_secret, algorithm="HS256"
@@ -261,10 +253,10 @@ class TestCreateDrpPrivacyRequest:
 
     @pytest.mark.usefixtures("messaging_config", "policy_drp_action")
     @mock.patch(
-        "fides.api.ops.service.messaging.message_dispatch_service._mailgun_dispatcher"
+        "fides.api.service.messaging.message_dispatch_service._mailgun_dispatcher"
     )
     @mock.patch(
-        "fides.api.ops.service.privacy_request.request_runner_service.run_privacy_request.delay"
+        "fides.api.service.privacy_request.request_runner_service.run_privacy_request.delay"
     )
     def test_create_drp_privacy_request_error_notification(
         self,

@@ -2,15 +2,18 @@ name: Backend Code Checks
 
 on:
   pull_request:
+    # This only ignores paths if there are _no_ commits on the branch that touch other files
     paths-ignore:
       - "**.md"
+      - "clients/**"
   push:
     branches:
       - "main"
+      - "release-**"
 
 env:
   IMAGE: ethyca/fides:local
-  DEFAULT_PYTHON_VERSION: "3.10.7"
+  DEFAULT_PYTHON_VERSION: "3.10.13"
 
 jobs:
   ###############
@@ -39,7 +42,7 @@ jobs:
     strategy:
       matrix:
         # NOTE: These are the currently supported/tested Python Versions
-        python_version: ["3.8.14", "3.9.14", "3.10.7"]
+        python_version: ["3.8.18", "3.9.18", "3.10.13"]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -74,7 +77,15 @@ jobs:
     strategy:
       matrix:
         session_name:
-          ["isort", "black", "mypy", "pylint", "xenon", "check_install"]
+          [
+            "isort",
+            "black",
+            "mypy",
+            "pylint",
+            "xenon",
+            "check_install",
+            '"pytest(nox)"',
+          ]
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -90,14 +101,84 @@ jobs:
       - name: Install Nox
         run: pip install nox>=2022
 
+      - name: Install Dev Requirements
+        run: pip install -r dev-requirements.txt
+
       - name: Run Static Check
         run: nox -s ${{ matrix.session_name }}
+
+  ##################
+  ## Performance ##
+  ##################
+  Performance-Checks:
+    needs: Check-Container-Startup
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Download container
+        uses: actions/download-artifact@v3
+        with:
+          name: python-${{ env.DEFAULT_PYTHON_VERSION }}
+          path: /tmp/
+
+      - name: Load image
+        run: docker load --input /tmp/python-${{ env.DEFAULT_PYTHON_VERSION }}.tar
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set Up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Rust/Cargo
+        run: curl -y https://sh.rustup.rs -sSf | sh
+
+      - name: Install Drill
+        run: cargo install drill
+
+      - name: Install Nox
+        run: pip install nox>=2022
+
+      - name: Run Performance Tests
+        run: nox -s performance_tests
 
   #################
   ## Misc Checks ##
   #################
-  Misc-Tests:
+  Check-Container-Startup:
     needs: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download container
+        uses: actions/download-artifact@v3
+        with:
+          name: python-${{ env.DEFAULT_PYTHON_VERSION }}
+          path: /tmp/
+
+      - name: Load image
+        run: docker load --input /tmp/python-${{ env.DEFAULT_PYTHON_VERSION }}.tar
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set Up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Nox
+        run: pip install nox>=2022
+
+      - name: Run test suite
+        run: nox -s check_container_startup
+
+  Misc-Tests:
+    needs: Check-Container-Startup
     strategy:
       matrix:
         test_selection:
@@ -138,10 +219,10 @@ jobs:
   ## Safe Tests ##
   ################
   Safe-Tests:
-    needs: Build
+    needs: Check-Container-Startup
     strategy:
       matrix:
-        python_version: ["3.8.14", "3.9.14", "3.10.7"]
+        python_version: ["3.8.18", "3.9.18", "3.10.13"]
         test_selection:
           - "ctl-not-external"
           - "ops-unit"
@@ -149,7 +230,7 @@ jobs:
           - "lib"
 
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     continue-on-error: true
     steps:
       - name: Download container
@@ -188,13 +269,13 @@ jobs:
   # NOTE: Matrixes aren't used here due to the danger of race conditions for external resources
 
   Pytest-Ctl-External:
-    needs: Build
+    needs: Check-Container-Startup
     strategy:
       max-parallel: 1 # This prevents collisions in shared external resources
       matrix:
-        python_version: ["3.8.14", "3.9.14", "3.10.7"]
+        python_version: ["3.8.18", "3.9.18", "3.10.13"]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     # In PRs run with the "unsafe" label, or run on a "push" event to main
     if: contains(github.event.pull_request.labels.*.name, 'run unsafe ci checks') || github.event_name == 'push'
     steps:
@@ -218,20 +299,23 @@ jobs:
         env:
           SNOWFLAKE_FIDESCTL_PASSWORD: ${{ secrets.SNOWFLAKE_FIDESCTL_PASSWORD }}
           REDSHIFT_FIDESCTL_PASSWORD: ${{ secrets.REDSHIFT_FIDESCTL_PASSWORD }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_FIDESCTL_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_FIDESCTL_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_CTL_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_CTL_SECRET_ACCESS_KEY }}
           OKTA_CLIENT_TOKEN: ${{ secrets.OKTA_FIDESCTL_CLIENT_TOKEN }}
           AWS_DEFAULT_REGION: us-east-1
           BIGQUERY_CONFIG: ${{ secrets.BIGQUERY_CONFIG }}
+          DYNAMODB_REGION: ${{ secrets.DYNAMODB_REGION }}
+          DYNAMODB_ACCESS_KEY_ID: ${{ secrets.DYNAMODB_ACCESS_KEY_ID }}
+          DYNAMODB_ACCESS_KEY: ${{ secrets.DYNAMODB_ACCESS_KEY }}
 
   External-Datastores:
-    needs: Build
+    needs: Check-Container-Startup
     strategy:
       max-parallel: 1 # This prevents collisions in shared external resources
       matrix:
-        python_version: ["3.8.14", "3.9.14", "3.10.7"]
+        python_version: ["3.8.18", "3.9.18", "3.10.13"]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     # In PRs run with the "unsafe" label, or run on a "push" event to main
     if: contains(github.event.pull_request.labels.*.name, 'run unsafe ci checks') || github.event_name == 'push'
     steps:
@@ -252,17 +336,30 @@ jobs:
 
       - name: Integration Tests (External)
         env:
-          REDSHIFT_TEST_URI: ${{ secrets.REDSHIFT_TEST_URI }}
-          REDSHIFT_TEST_DB_SCHEMA: fidesops_test
           BIGQUERY_KEYFILE_CREDS: ${{ secrets.BIGQUERY_KEYFILE_CREDS }}
           BIGQUERY_DATASET: fidesopstest
-          SNOWFLAKE_TEST_URI: ${{ secrets.SNOWFLAKE_TEST_URI }}
+          DYNAMODB_REGION: ${{ secrets.DYNAMODB_REGION }}
+          DYNAMODB_ACCESS_KEY_ID: ${{ secrets.DYNAMODB_ACCESS_KEY_ID }}
+          DYNAMODB_ACCESS_KEY: ${{ secrets.DYNAMODB_ACCESS_KEY }}
+          REDSHIFT_TEST_HOST: ${{ secrets.REDSHIFT_TEST_HOST }}
+          REDSHIFT_TEST_PORT: ${{ secrets.REDSHIFT_TEST_PORT }}
+          REDSHIFT_TEST_USER: ${{ secrets.REDSHIFT_TEST_USER }}
+          REDSHIFT_TEST_PASSWORD: ${{ secrets.REDSHIFT_TEST_PASSWORD }}
+          REDSHIFT_TEST_DATABASE: ${{ secrets.REDSHIFT_TEST_DATABASE }}
+          REDSHIFT_TEST_DB_SCHEMA: ${{ secrets.REDSHIFT_TEST_DB_SCHEMA }}
+          SNOWFLAKE_TEST_ACCOUNT_IDENTIFIER: ${{ secrets.SNOWFLAKE_TEST_ACCOUNT_IDENTIFIER }}
+          SNOWFLAKE_TEST_USER_LOGIN_NAME: ${{ secrets.SNOWFLAKE_TEST_USER_LOGIN_NAME }}
+          SNOWFLAKE_TEST_PASSWORD: ${{ secrets.SNOWFLAKE_TEST_PASSWORD }}
+          SNOWFLAKE_TEST_WAREHOUSE_NAME: ${{ secrets.SNOWFLAKE_TEST_WAREHOUSE_NAME }}
+          SNOWFLAKE_TEST_DATABASE_NAME: ${{ secrets.SNOWFLAKE_TEST_DATABASE_NAME }}
+          SNOWFLAKE_TEST_SCHEMA_NAME: ${{ secrets.SNOWFLAKE_TEST_SCHEMA_NAME }}
+
         run: nox -s "pytest(ops-external-datastores)"
 
   External-SaaS-Connectors:
-    needs: Build
+    needs: Check-Container-Startup
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     # In PRs run with the "unsafe" label, or run on a "push" event to main
     if: contains(github.event.pull_request.labels.*.name, 'run unsafe ci checks') || github.event_name == 'push'
     permissions:
@@ -271,7 +368,7 @@ jobs:
     strategy:
       max-parallel: 1 # This prevents collisions in shared external resources
       matrix:
-        python_version: ["3.8.14", "3.9.14", "3.10.7"]
+        python_version: ["3.8.18", "3.9.18", "3.10.13"]
     steps:
       - name: Download container
         uses: actions/download-artifact@v3
@@ -289,7 +386,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Get Vault Token
-        uses: hashicorp/vault-action@v2.4.2
+        uses: hashicorp/vault-action@v2.5.0
         with:
           url: ${{ secrets.VAULT_ADDR }}
           namespace: ${{ secrets.VAULT_NAMESPACE }}

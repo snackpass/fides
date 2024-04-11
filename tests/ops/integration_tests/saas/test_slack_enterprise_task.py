@@ -2,24 +2,20 @@ import random
 
 import pytest
 
-from fides.api.ops.graph.graph import DatasetGraph
-from fides.api.ops.models.privacy_request import PrivacyRequest
-from fides.api.ops.schemas.redis_cache import Identity
-from fides.api.ops.service.connectors import get_connector
-from fides.api.ops.task import graph_task
-from fides.core.config import CONFIG
+from fides.api.graph.graph import DatasetGraph
+from fides.api.models.privacy_request import PrivacyRequest
+from fides.api.schemas.redis_cache import Identity
+from fides.api.service.connectors import get_connector
+from fides.api.task import graph_task
 from tests.ops.graph.graph_test_util import assert_rows_match
-from tests.ops.test_helpers.dataset_utils import update_dataset
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_slack
 def test_slack_enterprise_connection_test(slack_enterprise_connection_config) -> None:
     get_connector(slack_enterprise_connection_config).test_connection()
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_slack
 @pytest.mark.asyncio
 async def test_slack_enterprise_access_request_task(
     db,

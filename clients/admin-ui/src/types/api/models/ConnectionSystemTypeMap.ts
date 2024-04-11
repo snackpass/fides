@@ -2,6 +2,7 @@
 /* tslint:disable */
 /* eslint-disable */
 
+import type { ActionType } from "./ActionType";
 import type { ConnectionType } from "./ConnectionType";
 import type { SystemType } from "./SystemType";
 
@@ -13,4 +14,7 @@ export type ConnectionSystemTypeMap = {
   type: SystemType;
   human_readable: string;
   encoded_icon?: string;
+  authorization_required?: boolean;
+  user_guide?: string;
+  supported_actions: Array<ActionType>;
 };

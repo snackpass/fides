@@ -18,22 +18,55 @@ import {
 } from "@fidesui/react";
 import { useAlert, useAPIHelper } from "common/hooks";
 import { useGetAllEnabledAccessManualHooksQuery } from "datastore-connections/datastore-connection.slice";
-import { useRouter } from "next/router";
 import {
   privacyRequestApi,
   useResumePrivacyRequestFromRequiresInputMutation,
-  useUploadManualWebhookDataMutation,
+  useUploadManualAccessWebhookDataMutation,
+  useUploadManualErasureWebhookDataMutation,
 } from "privacy-requests/privacy-requests.slice";
 import {
+  ActionType,
   PatchUploadManualWebhookDataRequest,
   PrivacyRequestEntity,
 } from "privacy-requests/types";
 import React, { useEffect, useState } from "react";
-import { useDispatch } from "react-redux";
-import { INDEX_ROUTE } from "src/constants";
 
-import ManualProcessingDetail from "./ManualProcessingDetail";
+import { useAppDispatch } from "~/app/hooks";
+import { getActionTypes } from "~/features/common/RequestType";
+
+import ManualAccessProcessingDetail from "./ManualAccessProcessingDetail";
+import ManualErasureProcessingDetail from "./ManualErasureProcessingDetail";
 import { ManualInputData } from "./types";
+
+type ActionConfig = {
+  ProcessingDetailComponent: React.FC<any>;
+  uploadMutation: (params: any) => any;
+  getUploadedWebhookDataEndpoint: any;
+};
+
+const getActionConfig = (
+  actionType: ActionType[],
+  uploadManualAccessMutation: any,
+  uploadManualErasureMutation: any
+): ActionConfig | null => {
+  if (actionType.includes(ActionType.ACCESS)) {
+    return {
+      ProcessingDetailComponent: ManualAccessProcessingDetail,
+      uploadMutation: uploadManualAccessMutation,
+      getUploadedWebhookDataEndpoint:
+        privacyRequestApi.endpoints.getUploadedManualAccessWebhookData,
+    };
+  }
+  if (actionType.includes(ActionType.ERASURE)) {
+    return {
+      ProcessingDetailComponent: ManualErasureProcessingDetail,
+      uploadMutation: uploadManualErasureMutation,
+      getUploadedWebhookDataEndpoint:
+        privacyRequestApi.endpoints.getUploadedManualErasureWebhookData,
+    };
+  }
+  return null;
+};
 
 type ManualProcessingListProps = {
   subjectRequest: PrivacyRequestEntity;
@@ -42,8 +75,7 @@ type ManualProcessingListProps = {
 const ManualProcessingList: React.FC<ManualProcessingListProps> = ({
   subjectRequest,
 }) => {
-  const dispatch = useDispatch();
-  const router = useRouter();
+  const dispatch = useAppDispatch();
   const { errorAlert, successAlert } = useAlert();
   const { handleError } = useAPIHelper();
   const [dataList, setDataList] = useState([] as unknown as ManualInputData[]);
@@ -56,14 +88,27 @@ const ManualProcessingList: React.FC<ManualProcessingListProps> = ({
   const [resumePrivacyRequestFromRequiresInput] =
     useResumePrivacyRequestFromRequiresInputMutation();
 
-  const [uploadManualWebhookData] = useUploadManualWebhookDataMutation();
+  const actionTypes = getActionTypes(subjectRequest.policy.rules);
+  const [uploadManualWebhookAccessData] =
+    useUploadManualAccessWebhookDataMutation();
+  const [uploadManualWebhookErasureData] =
+    useUploadManualErasureWebhookDataMutation();
+
+  const {
+    ProcessingDetailComponent: ProcessingDetail,
+    uploadMutation,
+    getUploadedWebhookDataEndpoint,
+  } = getActionConfig(
+    actionTypes,
+    uploadManualWebhookAccessData,
+    uploadManualWebhookErasureData
+  ) as ActionConfig;
 
   const handleCompleteDSRClick = async () => {
     try {
       setIsCompleteDSRLoading(true);
       await resumePrivacyRequestFromRequiresInput(subjectRequest.id).unwrap();
       successAlert(`Manual request has been received. Request now processing.`);
-      router.push(INDEX_ROUTE);
     } catch (error) {
       handleError(error);
     } finally {
@@ -74,7 +119,7 @@ const ManualProcessingList: React.FC<ManualProcessingListProps> = ({
   const handleSubmit = async (params: PatchUploadManualWebhookDataRequest) => {
     try {
       setIsSubmitting(true);
-      await uploadManualWebhookData(params).unwrap();
+      await uploadMutation(params).unwrap();
       const response = {
         connection_key: params.connection_key,
         fields: {},
@@ -100,7 +145,7 @@ const ManualProcessingList: React.FC<ManualProcessingListProps> = ({
   };
 
   useEffect(() => {
-    const fetchUploadedManuaWebhookData = () => {
+    const fetchUploadedManualWebhookData = () => {
       if (dataList.length > 0) {
         return;
       }
@@ -109,7 +154,7 @@ const ManualProcessingList: React.FC<ManualProcessingListProps> = ({
       keys?.every((k) =>
         promises.push(
           dispatch(
-            privacyRequestApi.endpoints.getUploadedManualWebhookData.initiate({
+            getUploadedWebhookDataEndpoint.initiate({
               connection_key: k,
               privacy_request_id: subjectRequest.id,
             })
@@ -148,7 +193,7 @@ const ManualProcessingList: React.FC<ManualProcessingListProps> = ({
     };
 
     if (isSuccess && data!.length > 0 && dataList.length === 0) {
-      fetchUploadedManuaWebhookData();
+      fetchUploadedManualWebhookData();
     }
 
     return () => {};
@@ -159,7 +204,15 @@ const ManualProcessingList: React.FC<ManualProcessingListProps> = ({
     errorAlert,
     isSuccess,
     subjectRequest.id,
+    getUploadedWebhookDataEndpoint,
   ]);
+
+  if (
+    !actionTypes.includes(ActionType.ACCESS) &&
+    !actionTypes.includes(ActionType.ERASURE)
+  ) {
+    return null;
+  }
 
   return (
     <VStack align="stretch" spacing={8}>
@@ -192,10 +245,7 @@ const ManualProcessingList: React.FC<ManualProcessingListProps> = ({
                     pl="0"
                     textTransform="none"
                   >
-                    Connector name
-                  </Th>
-                  <Th fontSize="sm" fontWeight="semibold" textTransform="none">
-                    Description
+                    Integration Identifier
                   </Th>
                   <Th />
                 </Tr>
@@ -203,12 +253,11 @@ const ManualProcessingList: React.FC<ManualProcessingListProps> = ({
               <Tbody>
                 {data.length > 0 &&
                   data.map((item) => (
-                    <Tr key={item.id}>
-                      <Td pl="0">{item.connection_config.name}</Td>
-                      <Td>{item.connection_config.description}</Td>
+                    <Tr key={item.id} display="block">
+                      <Td pl="0">{item.connection_config.key}</Td>
                       <Td>
                         {dataList.length > 0 ? (
-                          <ManualProcessingDetail
+                          <ProcessingDetail
                             connectorName={item.connection_config.name}
                             data={
                               dataList.find(
@@ -229,7 +278,7 @@ const ManualProcessingList: React.FC<ManualProcessingListProps> = ({
                     <Td colSpan={3} pl="0">
                       <Center>
                         <Text>
-                          You don&lsquo;t have any Manual Webhook connections
+                          You don&lsquo;t have any Manual Process connections
                           set up yet.
                         </Text>
                       </Center>
@@ -240,9 +289,7 @@ const ManualProcessingList: React.FC<ManualProcessingListProps> = ({
               {dataList.length > 0 && dataList.every((item) => item.checked) ? (
                 <Tfoot>
                   <Tr>
-                    <Th />
-                    <Th />
-                    <Th>
+                    <Th pl="0px">
                       <Button
                         color="white"
                         bg="primary.800"

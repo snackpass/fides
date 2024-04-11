@@ -1,18 +1,29 @@
 """
-Contains all of the options/arguments used by the CLI commands.
+Reusable command-line arguments and options.
 """
 
 from typing import Callable
 
-import click
+import rich_click as click
 from fideslang import model_list
+
+# Note - the type: ignore comments throughout this file are a workaround
+# for a known issue with the `click` library:
+# https://github.com/pallets/click/issues/2558
+# If/when that issue is resolved, they can be removed.
 
 
 def coverage_threshold_option(command: Callable) -> Callable:
-    "Add a flag that assumes yes."
+    """An option decorator that sets a required coverage percentage."""
     command = click.option(
-        "--coverage-threshold", "-c", type=click.IntRange(0, 100), default=100
-    )(command)
+        "--coverage-threshold",
+        "-c",
+        type=click.IntRange(0, 100),
+        default=100,
+        help="Set the coverage percentage for a passing scan.",
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -21,7 +32,9 @@ def resource_type_argument(command: Callable) -> Callable:
     command = click.argument(
         "resource_type",
         type=click.Choice(model_list, case_sensitive=False),
-    )(command)
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -30,7 +43,9 @@ def fides_key_argument(command: Callable) -> Callable:
     command = click.argument(
         "fides_key",
         type=str,
-    )(command)
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -40,26 +55,29 @@ def fides_key_option(command: Callable) -> Callable:
         "-k",
         "--fides-key",
         default="",
-        help="The fides_key of the single policy that you wish to evaluate.",
-    )(command)
+    )(
+        command
+    )  # type: ignore
     return command
 
 
 def manifests_dir_argument(command: Callable) -> Callable:
     "Add the manifests_dir argument."
     command = click.argument(
-        "manifests_dir",
-        default=".fides/",
-        type=click.Path(exists=True),
-    )(command)
+        "manifests_dir", type=click.Path(exists=True), default=".fides/"
+    )(
+        command
+    )  # type: ignore
     return command
 
 
 def dry_flag(command: Callable) -> Callable:
     "Add a flag that prevents side-effects."
     command = click.option(
-        "--dry", is_flag=True, help="Prevent the persistance of any changes."
-    )(command)
+        "--dry", is_flag=True, help="Do not upload results to the Fides webserver."
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -69,8 +87,10 @@ def yes_flag(command: Callable) -> Callable:
         "--yes",
         "-y",
         is_flag=True,
-        help="Automatically responds 'yes' to any prompts.",
-    )(command)
+        help="Automatically responds `yes` to any prompts.",
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -81,7 +101,9 @@ def verbose_flag(command: Callable) -> Callable:
         "-v",
         is_flag=True,
         help="Enable verbose output.",
-    )(command)
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -90,8 +112,10 @@ def include_null_flag(command: Callable) -> Callable:
     command = click.option(
         "--include-null",
         is_flag=True,
-        help="Includes attributes that would otherwise be null.",
-    )(command)
+        help="Include null attributes.",
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -101,8 +125,11 @@ def organization_fides_key_option(command: Callable) -> Callable:
         "--org-key",
         "-k",
         default="default_organization",
-        help="The organization_fides_key you wish to export resources for.",
-    )(command)
+        show_default=True,
+        help="The `organization_fides_key` of the `Organization` you want to specify.",
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -112,8 +139,11 @@ def output_directory_option(command: Callable) -> Callable:
         "--output-dir",
         "-d",
         default=".fides/",
+        show_default=True,
         help="The output directory for the data map to be exported to.",
-    )(command)
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -122,8 +152,10 @@ def credentials_id_option(command: Callable) -> Callable:
     command = click.option(
         "--credentials-id",
         type=str,
-        help="Use credentials defined within fides config",
-    )(command)
+        help="Use credentials keys defined within Fides config.",
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -132,8 +164,10 @@ def connection_string_option(command: Callable) -> Callable:
     command = click.option(
         "--connection-string",
         type=str,
-        help="Use connection string option to connect to a database",
-    )(command)
+        help="Use the connection string option to connect to a database.",
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -142,8 +176,10 @@ def okta_org_url_option(command: Callable) -> Callable:
     command = click.option(
         "--org-url",
         type=str,
-        help="Use org url option to connect to okta. Requires options --org-url and --token",
-    )(command)
+        help="Connect to Okta using an 'Org URL'. _Requires options `--org-url` & `--token`._",
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -152,8 +188,10 @@ def okta_token_option(command: Callable) -> Callable:
     command = click.option(
         "--token",
         type=str,
-        help="Use token option to connect to okta. Requires options --org-url and --token",
-    )(command)
+        help="Connect to Okta using a token. _Requires options `--org-url` and `--token`._",
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -162,8 +200,10 @@ def aws_access_key_id_option(command: Callable) -> Callable:
     command = click.option(
         "--access_key_id",
         type=str,
-        help="Use access key id option to connect to aws. Requires options --access_key_id, --secret_access_key and --region",
-    )(command)
+        help="Connect to AWS using an `Access Key ID`. _Requires options `--access_key_id`, `--secret_access_key` & `--region`._",
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -172,8 +212,23 @@ def aws_secret_access_key_option(command: Callable) -> Callable:
     command = click.option(
         "--secret_access_key",
         type=str,
-        help="Use access key option to connect to aws. Requires options --access_key_id, --secret_access_key and --region",
-    )(command)
+        help="Connect to AWS using an `Access Key`. _Requires options `--access_key_id`, `--secret_access_key` & `--region`._",
+    )(
+        command
+    )  # type: ignore
+    return command
+
+
+def aws_session_token_option(command: Callable) -> Callable:
+    "Use a session token with temporary access keys to connect to aws. Requires options --access_key_id, --secret_access_key and --region"
+    command = click.option(
+        "--session_token",
+        type=str,
+        default="",
+        help="Connect to AWS using a temporary `Access Key`. _Requires options `--access_key_id`, `--secret_access_key`, `--session_token`, & `--region`._",
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -182,20 +237,40 @@ def aws_region_option(command: Callable) -> Callable:
     command = click.option(
         "--region",
         type=str,
-        help="Use region option to connect to aws. Requires options --access_key_id, --secret_access_key and --region",
-    )(command)
+        help="Connect to AWS using a specific `Region`. _Requires options `--access_key_id`, `--secret_access_key` & `--region`._",
+    )(
+        command
+    )  # type: ignore
     return command
 
 
 def prompt_username(ctx: click.Context, param: str, value: str) -> str:
-    if not value:
-        value = click.prompt(text="Username")
+    """Check the config for a compatible username. If unavailable, prompt the user to provide one."""
+    config_value = ctx.obj["CONFIG"].user.username
+
+    if value:
+        return value
+
+    if config_value:
+        click.echo("> Username found in configuration.")
+        return config_value
+
+    value = click.prompt(text="Username")  # pragma: no cover
     return value
 
 
 def prompt_password(ctx: click.Context, param: str, value: str) -> str:
-    if not value:
-        value = click.prompt(text="Password", hide_input=True)
+    """Check the config for a compatible password. If unavailable, prompt the user to provide one."""
+    config_value = ctx.obj["CONFIG"].user.password
+
+    if value:
+        return value
+
+    if config_value:
+        click.echo("> Password found in configuration.")
+        return config_value
+
+    value = click.prompt(text="Password", hide_input=True)  # pragma: no cover
     return value
 
 
@@ -203,9 +278,12 @@ def username_option(command: Callable) -> Callable:
     command = click.option(
         "-u",
         "--username",
+        help="If not provided, will be pulled from the config file or prompted for.",
         default="",
         callback=prompt_username,
-    )(command)
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -213,9 +291,12 @@ def password_option(command: Callable) -> Callable:
     command = click.option(
         "-p",
         "--password",
+        help="If not provided, will be pulled from the config file or prompted for.",
         default="",
         callback=prompt_password,
-    )(command)
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -224,7 +305,9 @@ def first_name_option(command: Callable) -> Callable:
         "-f",
         "--first-name",
         default="",
-    )(command)
+    )(
+        command
+    )  # type: ignore
     return command
 
 
@@ -233,5 +316,17 @@ def last_name_option(command: Callable) -> Callable:
         "-l",
         "--last-name",
         default="",
-    )(command)
+    )(
+        command
+    )  # type: ignore
+    return command
+
+
+def username_argument(command: Callable) -> Callable:
+    command = click.argument("username", type=str)(command)  # type: ignore
+    return command
+
+
+def password_argument(command: Callable) -> Callable:
+    command = click.argument("password", type=str)(command)  # type: ignore
     return command

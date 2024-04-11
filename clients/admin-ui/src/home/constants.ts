@@ -1,78 +1,83 @@
 import {
-  CONFIG_WIZARD_ROUTE,
-  DATASTORE_CONNECTION_ROUTE,
+  ADD_SYSTEMS_ROUTE,
+  CONFIGURE_CONSENT_ROUTE,
+  DATAMAP_ROUTE,
   PRIVACY_REQUESTS_ROUTE,
   SYSTEM_ROUTE,
-} from "~/constants";
+} from "~/features/common/nav/v2/routes";
+import { ScopeRegistryEnum } from "~/types/api";
 
-import { ModuleCard } from "./types";
+import { ModuleCardConfig } from "./types";
 
 /**
  * Enums
  */
 export enum ModuleCardKeys {
   ADD_SYSTEMS = 1,
-  MANAGE_SYSTEMS = 2,
-  CONFIGURE_PRIVACY_REQUESTS = 3,
-  REVIEW_PRIVACY_REQUESTS = 4,
+  VIEW_SYSTEMS = 2,
+  REVIEW_PRIVACY_REQUESTS = 3,
+  VIEW_MAP = 4,
+  CONFIGURE_CONSENT = 5,
 }
 
-export const MODULE_CARD_ITEMS: ModuleCard[] = [
+export const MODULE_CARD_ITEMS: ModuleCardConfig[] = [
   {
-    backgroundColor: "orange.50",
+    color: "blue",
     description:
-      "As your organization grows you can continue adding systems to your Fides data map.",
-    descriptionColor: "gray.500",
-    hoverBorderColor: "orange.500",
-    href: `${CONFIG_WIZARD_ROUTE}`,
+      "Explore the systems and data flow across your organization and create custom reports.",
+    href: `${DATAMAP_ROUTE}`,
+    key: ModuleCardKeys.VIEW_MAP,
+    name: "View data map",
+    sortOrder: 0,
+    title: "VM",
+    requiresPlus: true,
+    requiresSystems: true,
+    scopes: [ScopeRegistryEnum.DATAMAP_READ],
+  },
+  {
+    color: "orange",
+    description: "Add third party applications and databases to your data map",
+    href: `${ADD_SYSTEMS_ROUTE}`,
     key: ModuleCardKeys.ADD_SYSTEMS,
     name: "Add systems",
-    nameColor: "orange.800",
     sortOrder: 1,
     title: "AS",
-    titleColor: "orange.300",
+    scopes: [ScopeRegistryEnum.SYSTEM_CREATE],
   },
   {
-    backgroundColor: "purple.50",
+    color: "purple",
     description:
-      "Review and update system information across your data map including data categories and purposes of processing.",
-    descriptionColor: "gray.500",
-    hoverBorderColor: "purple.500",
+      "Review system information for all systems in your organization",
     href: `${SYSTEM_ROUTE}`,
-    key: ModuleCardKeys.MANAGE_SYSTEMS,
-    name: "Manage systems",
-    nameColor: "purple.800",
+    key: ModuleCardKeys.VIEW_SYSTEMS,
+    name: "View systems",
     sortOrder: 2,
-    title: "MS",
-    titleColor: "purple.300",
+    title: "VS",
+    scopes: [ScopeRegistryEnum.SYSTEM_READ],
+    requiresSystems: true,
   },
   {
-    backgroundColor: "teal.50",
-    description:
-      "Connect your systems and configure privacy request processing for DSRs (access and erasure).",
-    descriptionColor: "gray.500",
-    hoverBorderColor: "teal.500",
-    href: `${DATASTORE_CONNECTION_ROUTE}/new?step=1`,
-    key: ModuleCardKeys.CONFIGURE_PRIVACY_REQUESTS,
-    name: "Configure privacy requests",
-    nameColor: "teal.800",
-    sortOrder: 3,
-    title: "PR",
-    titleColor: "teal.300",
-  },
-
-  {
-    backgroundColor: "pink.50",
+    color: "pink",
     description:
       "Review, approve and process privacy requests across your systems on behalf of your users.",
-    descriptionColor: "gray.500",
-    hoverBorderColor: "pink.500",
     href: `${PRIVACY_REQUESTS_ROUTE}`,
     key: ModuleCardKeys.REVIEW_PRIVACY_REQUESTS,
     name: "Review privacy requests",
-    nameColor: "pink.800",
     sortOrder: 4,
     title: "RP",
-    titleColor: "pink.300",
+    scopes: [ScopeRegistryEnum.PRIVACY_REQUEST_REVIEW],
+    requiresConnections: true,
+  },
+  {
+    color: "green",
+    description:
+      "Manage consent notices and experiences for all domains in your organization",
+    href: `${CONFIGURE_CONSENT_ROUTE}`,
+    key: ModuleCardKeys.CONFIGURE_CONSENT,
+    name: "Manage consent",
+    sortOrder: 5,
+    title: "MC",
+    scopes: [ScopeRegistryEnum.PRIVACY_NOTICE_READ],
+    requiresPlus: true,
   },
 ];

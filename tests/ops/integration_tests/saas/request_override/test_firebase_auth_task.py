@@ -4,21 +4,20 @@ import pytest
 from firebase_admin import auth
 from firebase_admin.auth import UserNotFoundError, UserRecord
 
-from fides.api.ops.graph.graph import DatasetGraph
-from fides.api.ops.models.privacy_request import PrivacyRequest
-from fides.api.ops.schemas.redis_cache import Identity
-from fides.api.ops.service.saas_request.override_implementations.firebase_auth_request_overrides import (
+from fides.api.graph.graph import DatasetGraph
+from fides.api.models.privacy_request import PrivacyRequest
+from fides.api.schemas.redis_cache import Identity
+from fides.api.service.saas_request.override_implementations.firebase_auth_request_overrides import (
     firebase_auth_user_delete,
     initialize_firebase,
 )
-from fides.api.ops.task import graph_task
-from fides.api.ops.task.graph_task import get_cached_data_for_erasures
-from fides.core.config import CONFIG
+from fides.api.task import graph_task
+from fides.api.task.graph_task import get_cached_data_for_erasures
+from fides.config import CONFIG
 from tests.ops.graph.graph_test_util import assert_rows_match
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_firebase_auth
 @pytest.mark.asyncio
 async def test_firebase_auth_access_request(
     db,
@@ -94,7 +93,6 @@ async def test_firebase_auth_access_request(
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_firebase_auth
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("firebase_auth_user")
 @pytest.mark.parametrize(
@@ -147,7 +145,6 @@ async def test_firebase_auth_access_request_non_existent_users(
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_firebase_auth
 @pytest.mark.asyncio
 async def test_firebase_auth_access_request_phone_number_identity(
     db,
@@ -226,7 +223,6 @@ async def test_firebase_auth_access_request_phone_number_identity(
     "Re-enable this test if the general config needs to test the user update functionality"
 )
 @pytest.mark.integration_saas
-@pytest.mark.integration_firebase_auth
 @pytest.mark.asyncio
 async def test_firebase_auth_update_request(
     db,
@@ -316,7 +312,6 @@ async def test_firebase_auth_update_request(
     "Re-enable this test if the general config needs to test the user update functionality"
 )
 @pytest.mark.integration_saas
-@pytest.mark.integration_firebase_auth
 @pytest.mark.asyncio
 async def test_firebase_auth_update_request_phone_number_identity(
     db,
@@ -403,7 +398,6 @@ async def test_firebase_auth_update_request_phone_number_identity(
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_firebase_auth
 @pytest.mark.asyncio
 async def test_firebase_auth_delete_request(
     db,
@@ -475,7 +469,6 @@ async def test_firebase_auth_delete_request(
 
 
 @pytest.mark.integration_saas
-@pytest.mark.integration_firebase_auth
 @pytest.mark.asyncio
 async def test_firebase_auth_delete_request_phone_number_identity(
     db,

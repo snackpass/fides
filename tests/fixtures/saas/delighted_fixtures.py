@@ -6,18 +6,18 @@ import requests
 from requests import Response
 from sqlalchemy.orm import Session
 
-from fides.api.ctl.sql_models import Dataset as CtlDataset
-from fides.api.ops.models.connectionconfig import (
+from fides.api.cryptography import cryptographic_util
+from fides.api.models.connectionconfig import (
     AccessLevel,
     ConnectionConfig,
     ConnectionType,
 )
-from fides.api.ops.models.datasetconfig import DatasetConfig
-from fides.api.ops.util.saas_util import (
+from fides.api.models.datasetconfig import DatasetConfig
+from fides.api.models.sql_models import Dataset as CtlDataset
+from fides.api.util.saas_util import (
     load_config_with_replacement,
     load_dataset_with_replacement,
 )
-from fides.lib.cryptography import cryptographic_util
 from tests.ops.test_helpers.saas_test_utils import poll_for_existence
 from tests.ops.test_helpers.vault_client import get_secrets
 
@@ -134,19 +134,23 @@ class DelightedTestClient:
             json={"person": person_id, "score": "3"},
         )
 
-    def get_person(self, email) -> Response:
-        return requests.get(
+    def get_person(self, email) -> Any:
+        response = requests.get(
             url=f"{self.base_url}/v1/people.json",
             auth=self.auth,
             params={"email": email},
         )
+        if len(response.json()):
+            return response
 
-    def get_survey_responses(self, person_id) -> Response:
-        return requests.get(
+    def get_survey_responses(self, person_id) -> Any:
+        response = requests.get(
             url=f"{self.base_url}/v1/survey_responses",
             auth=self.auth,
             params={"person_id": person_id},
         )
+        if response.ok:
+            return response
 
 
 @pytest.fixture(scope="function")
@@ -169,5 +173,10 @@ def delighted_create_erasure_data(
     # create survey response
     response = delighted_test_client.create_survey_response(person["id"])
     assert response.ok
-    poll_for_existence(delighted_test_client.get_survey_responses, (person["id"],))
+    poll_for_existence(
+        delighted_test_client.get_survey_responses,
+        (person["id"],),
+        interval=60,
+        verification_count=10,
+    )
     yield person

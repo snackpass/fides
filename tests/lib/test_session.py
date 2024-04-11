@@ -1,7 +1,7 @@
 import pytest
 
-from fides.core.config import get_config
-from fides.lib.db import session
+from fides.api.db import session
+from fides.config import get_config
 
 
 class TestGetDbEngine:
