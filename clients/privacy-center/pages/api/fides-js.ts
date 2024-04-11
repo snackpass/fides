@@ -189,7 +189,7 @@ export default async function handler(
 
   try {
     const publicContents = await fsPromises.readdir(
-      "/var/task/privacy-center/public/lib"
+      "/var/task/privacy-center/public"
     );
     console.log({ public: publicContents });
   } catch (e) {
