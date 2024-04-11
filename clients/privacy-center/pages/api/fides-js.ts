@@ -188,6 +188,13 @@ export default async function handler(
   console.log({ current_path: process.cwd() });
 
   try {
+    const centerContents = await fsPromises.readdir("/var/task/privacy-center");
+    console.log({ center: centerContents });
+  } catch (e) {
+    console.log({ centerE: e });
+  }
+
+  try {
     const publicContents = await fsPromises.readdir(
       "/var/task/privacy-center/public"
     );
