@@ -35,7 +35,7 @@ export default async function handler(
   res: NextApiResponse
 ) {
   // const gppJsFile = "public/lib/fides-ext-gpp.js";
-  const gppJsFile = "/var/task/privacy-center/.next/libfides-ext-gpp.js";
+  const gppJsFile = "/var/task/privacy-center/.next/fides-ext-gpp.js";
 
   const gppJsBuffer = await fsPromises.readFile(gppJsFile);
   const gppJs: string = gppJsBuffer.toString();

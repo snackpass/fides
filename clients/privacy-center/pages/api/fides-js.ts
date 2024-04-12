@@ -185,7 +185,7 @@ export default async function handler(
     );
   }
 
-  console.log({ current_path: process.cwd() });
+  console.log({ current_path: process.cwd(), fidesConfig });
 
   try {
     const centerContents = await fsPromises.readdir(
@@ -197,14 +197,23 @@ export default async function handler(
   }
 
   const fidesJsFile = tcfEnabled
-    ? "/var/task/privacy-center/.next/libfides-tcf.js"
-    : "/var/task/privacy-center/.next/libfides.js";
+    ? "/var/task/privacy-center/.next/fides-tcf.js"
+    : "/var/task/privacy-center/.next/fides.js";
+
+  try {
+    await fsPromises.readFile(fidesJsFile);
+  } catch (e) {
+    console.log({ loadBuffer: e });
+  }
 
   const fidesJSBuffer = await fsPromises.readFile(fidesJsFile);
   const fidesJS: string = fidesJSBuffer.toString();
   if (!fidesJS || fidesJS === "") {
+    console.log({ message: "Unable to load latest fides.js from server" });
     throw new Error("Unable to load latest fides.js script from server!");
   }
+
+  console.log({ message: "Loaded latest fides.js from server" });
 
   /* eslint-disable @typescript-eslint/no-use-before-define */
   const customFidesCss = await fetchCustomFidesCss(req);
@@ -240,6 +249,8 @@ export default async function handler(
     "max-age": FIDES_JS_MAX_AGE_SECONDS,
     public: true,
   };
+
+  console.log({ message: "responding!" });
 
   // Send the bundled script, ready to be loaded directly into a page!
   res
