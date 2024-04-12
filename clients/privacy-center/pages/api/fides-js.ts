@@ -185,7 +185,7 @@ export default async function handler(
     );
   }
 
-  console.log({ current_path: process.cwd(), fidesConfig });
+  console.log({ current_path: process.cwd() });
 
   try {
     const centerContents = await fsPromises.readdir(
@@ -196,16 +196,9 @@ export default async function handler(
     console.log({ centerE: e });
   }
 
-  try {
-    const taskContents = await fsPromises.readdir("/var/task/");
-    console.log({ task: taskContents });
-  } catch (e) {
-    console.log({ centerE: e });
-  }
-
   const fidesJsFile = tcfEnabled
     ? "/var/task/privacy-center/.next/fides-tcf.js"
-    : "/var/task/privacy-center/.next/fides.js";
+    : "/var/task/privacy-center/.next/libfides.js";
 
   try {
     await fsPromises.readFile(fidesJsFile);
@@ -223,7 +216,7 @@ export default async function handler(
   console.log({ message: "Loaded latest fides.js from server" });
 
   /* eslint-disable @typescript-eslint/no-use-before-define */
-  const customFidesCss = await fetchCustomFidesCss(req);
+  // const customFidesCss = await fetchCustomFidesCss(req);
 
   const script = `
   (function () {
@@ -235,18 +228,38 @@ export default async function handler(
     }
 
     // Include generic fides.js script
-    ${fidesJS}${
-    customFidesCss
-      ? `
-    // Include custom fides.css styles
-    const style = document.createElement('style');
-    style.innerHTML = ${JSON.stringify(customFidesCss)};
-    document.head.append(style);
-    `
-      : ""
-  }
+    ${fidesJS}
     // Initialize fides.js with custom config
-    var fidesConfig = ${fidesConfigJSON};
+    var fidesConfig = {
+      consent: { options: [Array] },
+      options: {
+        debug: false,
+        geolocationApiUrl: 'https://cdn-api.ethyca.com/location',
+        isGeolocationEnabled: true,
+        isOverlayEnabled: true,
+        isPrefetchEnabled: true,
+        overlayParentId: null,
+        modalLinkId: null,
+        privacyCenterUrl: 'http://localhost:3000',
+        fidesApiUrl: 'https://brandeis.snackpass.co/api/v1',
+        tcfEnabled: false,
+        serverSideFidesApiUrl: 'https://brandeis.snackpass.co/api/v1',
+        fidesEmbed: false,
+        fidesDisableSaveApi: false,
+        fidesDisableBanner: false,
+        fidesTcfGdprApplies: true,
+        fidesString: null,
+        apiOptions: null,
+        fidesJsBaseUrl: 'http://localhost:3000',
+        customOptionsPath: null,
+        preventDismissal: false,
+        allowHTMLDescription: null,
+        base64Cookie: false,
+        fidesPrimaryColor: null
+      },
+      experience: undefined,
+      geolocation: undefined
+    };
     window.Fides.init(fidesConfig);
   })();
   `;
