@@ -185,7 +185,21 @@ export default async function handler(
     );
   }
 
-  const fidesJsFile = tcfEnabled ? "fides-tcf.js" : "fides.js";
+  console.log({ current_path: process.cwd() });
+
+  try {
+    const centerContents = await fsPromises.readdir(
+      "/var/task/privacy-center/.next"
+    );
+    console.log({ center: centerContents });
+  } catch (e) {
+    console.log({ centerE: e });
+  }
+
+  const fidesJsFile = tcfEnabled
+    ? "/var/task/privacy-center/.next/libfides-tcf.js"
+    : "/var/task/privacy-center/.next/libfides.js";
+
   const fidesJSBuffer = await fsPromises.readFile(fidesJsFile);
   const fidesJS: string = fidesJSBuffer.toString();
   if (!fidesJS || fidesJS === "") {
