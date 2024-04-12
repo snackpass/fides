@@ -196,6 +196,13 @@ export default async function handler(
     console.log({ centerE: e });
   }
 
+  try {
+    const taskContents = await fsPromises.readdir("/var/task/");
+    console.log({ task: taskContents });
+  } catch (e) {
+    console.log({ centerE: e });
+  }
+
   const fidesJsFile = tcfEnabled
     ? "/var/task/privacy-center/.next/fides-tcf.js"
     : "/var/task/privacy-center/.next/fides.js";
