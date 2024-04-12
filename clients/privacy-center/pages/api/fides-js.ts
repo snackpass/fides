@@ -185,38 +185,18 @@ export default async function handler(
     );
   }
 
-  console.log({ current_path: process.cwd() });
-
-  try {
-    const centerContents = await fsPromises.readdir(
-      "/var/task/privacy-center/.next"
-    );
-    console.log({ center: centerContents });
-  } catch (e) {
-    console.log({ centerE: e });
-  }
-
   const fidesJsFile = tcfEnabled
-    ? "/var/task/privacy-center/.next/fides-tcf.js"
-    : "/var/task/privacy-center/.next/libfides.js";
-
-  try {
-    await fsPromises.readFile(fidesJsFile);
-  } catch (e) {
-    console.log({ loadBuffer: e });
-  }
+    ? "public/lib/fides-tcf.js"
+    : "public/lib/fides.js";
 
   const fidesJSBuffer = await fsPromises.readFile(fidesJsFile);
   const fidesJS: string = fidesJSBuffer.toString();
   if (!fidesJS || fidesJS === "") {
-    console.log({ message: "Unable to load latest fides.js from server" });
     throw new Error("Unable to load latest fides.js script from server!");
   }
 
-  console.log({ message: "Loaded latest fides.js from server" });
-
   /* eslint-disable @typescript-eslint/no-use-before-define */
-  // const customFidesCss = await fetchCustomFidesCss(req);
+  const customFidesCss = await fetchCustomFidesCss(req);
 
   const script = `
   (function () {
@@ -228,38 +208,18 @@ export default async function handler(
     }
 
     // Include generic fides.js script
-    ${fidesJS}
+    ${fidesJS}${
+    customFidesCss
+      ? `
+    // Include custom fides.css styles
+    const style = document.createElement('style');
+    style.innerHTML = ${JSON.stringify(customFidesCss)};
+    document.head.append(style);
+    `
+      : ""
+  }
     // Initialize fides.js with custom config
-    var fidesConfig = {
-      consent: { options: [Array] },
-      options: {
-        debug: false,
-        geolocationApiUrl: 'https://cdn-api.ethyca.com/location',
-        isGeolocationEnabled: true,
-        isOverlayEnabled: true,
-        isPrefetchEnabled: true,
-        overlayParentId: null,
-        modalLinkId: null,
-        privacyCenterUrl: 'http://localhost:3000',
-        fidesApiUrl: 'https://brandeis.snackpass.co/api/v1',
-        tcfEnabled: false,
-        serverSideFidesApiUrl: 'https://brandeis.snackpass.co/api/v1',
-        fidesEmbed: false,
-        fidesDisableSaveApi: false,
-        fidesDisableBanner: false,
-        fidesTcfGdprApplies: true,
-        fidesString: null,
-        apiOptions: null,
-        fidesJsBaseUrl: 'http://localhost:3000',
-        customOptionsPath: null,
-        preventDismissal: false,
-        allowHTMLDescription: null,
-        base64Cookie: false,
-        fidesPrimaryColor: null
-      },
-      experience: undefined,
-      geolocation: undefined
-    };
+    var fidesConfig = ${fidesConfigJSON};
     window.Fides.init(fidesConfig);
   })();
   `;
@@ -269,8 +229,6 @@ export default async function handler(
     "max-age": FIDES_JS_MAX_AGE_SECONDS,
     public: true,
   };
-
-  console.log({ message: "responding!" });
 
   // Send the bundled script, ready to be loaded directly into a page!
   res
