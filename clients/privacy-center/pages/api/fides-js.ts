@@ -185,35 +185,7 @@ export default async function handler(
     );
   }
 
-  console.log({ current_path: process.cwd() });
-
-  try {
-    const centerContents = await fsPromises.readdir("/var/task/privacy-center");
-    console.log({ center: centerContents });
-  } catch (e) {
-    console.log({ centerE: e });
-  }
-
-  try {
-    const publicContents = await fsPromises.readdir(
-      "/var/task/privacy-center/public"
-    );
-    console.log({ public: publicContents });
-  } catch (e) {
-    console.log({ publicE: e });
-  }
-
-  try {
-    const lib = await fsPromises.readdir("/var/task/privacy-center/public/lib");
-    console.log({ lib });
-  } catch (e) {
-    console.log({ libE: e });
-  }
-
-  const fidesJsFile = tcfEnabled
-    ? "/var/task/privacy-center/public/lib/fides-tcf.js"
-    : "/var/task/privacy-center/public/lib/fides.js";
-
+  const fidesJsFile = tcfEnabled ? "fides-tcf.js" : "fides.js";
   const fidesJSBuffer = await fsPromises.readFile(fidesJsFile);
   const fidesJS: string = fidesJSBuffer.toString();
   if (!fidesJS || fidesJS === "") {
