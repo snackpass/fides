@@ -44,11 +44,11 @@ const fidesScriptPlugins = ({ name, gzipWarnSizeKb, gzipErrorSizeKb }) => [
     targets: [
       {
         src: `dist/${name}.js`,
-        dest: `../privacy-center/public/lib/`,
+        dest: `../privacy-center/public/`,
       },
       {
         src: `dist/${name}.js`,
-        dest: `../admin-ui/public/lib/`,
+        dest: `../admin-ui/public/`,
       },
     ],
     verbose: true,
